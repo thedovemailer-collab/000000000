@@ -6668,9 +6668,17 @@ const BCA_CSS = `
   --bca-acc: var(--acc, #6c63ff);
   --bca-ok: #30d158;
   --bca-err: #ff453a;
-  /* The look: a dark tabbed panel under an animated teal-to-blue wordmark. */
+  /* The look: a dark tabbed panel under an animated wordmark. */
   --bca-teal: #3dd4b0;
   --bca-blue: #6b8fdb;
+  /* The wordmark's colours come from the theme's palette (Preferences →
+     Appearance: --fx1..3, Ocean by default), each mixed well into a cool
+     grey so they sit quietly on the dark instead of glowing. The plain
+     values are the fallback where color-mix isn't supported. */
+  --bca-l1: #52b9aa; --bca-l2: #4fb0c2; --bca-l3: #7394cf;
+  --bca-l1: color-mix(in oklab, var(--fx1, #14b8a6) 58%, #a9afbd);
+  --bca-l2: color-mix(in oklab, var(--fx2, #06b6d4) 54%, #a9afbd);
+  --bca-l3: color-mix(in oklab, var(--fx3, #3b82f6) 56%, #a9afbd);
   --bca-card: #16181c;
   --bca-card2: #131417;
   --bca-tab: #22252a;
@@ -6701,8 +6709,8 @@ const BCA_CSS = `
 .bca-stage { width: 100%; max-width: 356px; margin: 0 auto;
   display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
 
-/* The wordmark: Orbitron, wide and bold, filled with a teal-to-blue
-   gradient that slides back and forth. The same sweep lights the panel's
+/* The wordmark: Orbitron, wide and bold, filled with a gradient of the
+   theme's colours that slides back and forth. The same sweep lights the panel's
    top edge (.bca-glint), so the logo reads as reflecting onto it.
    Orbitron draws its first letter .05em in from the edge of its box; the
    negative margin takes that back, so the ink of the first letter lines up
@@ -6711,11 +6719,13 @@ const BCA_CSS = `
   align-self: flex-start; margin: 0 0 0 -.05em;
   font: 700 20px/1 'Orbitron', var(--font, 'Inter', sans-serif);
   letter-spacing: .07em; text-transform: uppercase; white-space: nowrap;
-  background: linear-gradient(90deg, var(--bca-teal) 0%, #4cc2c6 28%, var(--bca-blue) 56%, #8aa4e6 72%, var(--bca-teal) 100%);
+  background: linear-gradient(90deg, var(--bca-l1) 0%, var(--bca-l2) 28%, var(--bca-l3) 56%,
+    color-mix(in oklab, var(--bca-l3) 80%, #dfe3ea) 72%, var(--bca-l1) 100%);
   background-size: 260% 100%;
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: transparent;
-  filter: drop-shadow(0 0 14px rgba(61,212,176,.18));
+  filter: drop-shadow(0 0 12px rgba(120,150,170,.10));
+  filter: drop-shadow(0 0 12px color-mix(in srgb, var(--bca-l1) 14%, transparent));
   -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision;
   user-select: none; -webkit-user-select: none; pointer-events: none;
   animation: bca-word-in .9s cubic-bezier(.16,1,.3,1) both, bca-flow var(--bca-dur) ease-in-out infinite alternate;
@@ -6742,9 +6752,13 @@ const BCA_CSS = `
 @keyframes bca-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes bca-nudge { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
 
-/* The reflection: a bright glint riding the panel's top edge with a soft
-   sheen spilling down over the tabs, sliding in step with the wordmark. */
-.bca-glint { position: absolute; top: 0; left: 0; right: 0; height: 52px; z-index: 3; pointer-events: none; overflow: hidden; }
+/* The reflection: a glint riding the panel's top edge with a soft sheen
+   spilling down over the tabs, sliding in step with the wordmark. It is
+   brightest right under the wordmark and fades the further it travels
+   from it (the mask), the way a reflection falls off away from its light. */
+.bca-glint { position: absolute; top: 0; left: 0; right: 0; height: 52px; z-index: 3; pointer-events: none; overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 34%, rgba(0,0,0,.45) 58%, rgba(0,0,0,.12) 80%, transparent 100%);
+          mask-image: linear-gradient(90deg, #000 0%, #000 34%, rgba(0,0,0,.45) 58%, rgba(0,0,0,.12) 80%, transparent 100%); }
 .bca-glint i {
   position: absolute; top: 0; left: 0; width: 42%; height: 52px;
   animation: bca-glint var(--bca-dur) ease-in-out infinite alternate;
@@ -6752,11 +6766,18 @@ const BCA_CSS = `
 }
 .bca-glint i::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg, transparent 0%, rgba(61,212,176,.85) 30%, rgba(170,230,255,.95) 50%, rgba(107,143,219,.85) 70%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%, rgba(82,185,170,.5) 30%, rgba(200,215,230,.6) 50%, rgba(115,148,207,.5) 70%, transparent 100%);
+  background: linear-gradient(90deg, transparent 0%,
+    color-mix(in srgb, var(--bca-l1) 55%, transparent) 30%,
+    color-mix(in srgb, color-mix(in oklab, var(--bca-l2) 55%, #eef1f5) 62%, transparent) 50%,
+    color-mix(in srgb, var(--bca-l3) 55%, transparent) 70%, transparent 100%);
 }
 .bca-glint i::after {
   content: ''; position: absolute; top: 0; left: 8%; right: 8%; height: 40px;
-  background: radial-gradient(ellipse 50% 100% at 50% 0%, rgba(80,200,200,.16) 0%, rgba(107,143,219,.07) 45%, transparent 75%);
+  background: radial-gradient(ellipse 50% 100% at 50% 0%, rgba(90,170,180,.09) 0%, rgba(110,140,200,.04) 45%, transparent 75%);
+  background: radial-gradient(ellipse 50% 100% at 50% 0%,
+    color-mix(in srgb, var(--bca-l2) 10%, transparent) 0%,
+    color-mix(in srgb, var(--bca-l3) 4%, transparent) 45%, transparent 75%);
 }
 @keyframes bca-glint { from { transform: translateX(-18%); } to { transform: translateX(156%); } }
 
