@@ -1368,6 +1368,7 @@ const ensureYouTubeStyles = () => {
 .bc-yt-logo { flex: 0 0 auto; display: inline-flex; }
 .bc-yt-txt { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .bc-yt-cap { font-size: 12px; line-height: 1.35; color: var(--t1, #eeeef5); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.bc-yt-cap.is-full { display: block; -webkit-line-clamp: unset; font-size: 13px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 2px; }
 .bc-yt-src { font-size: 10.5px; color: rgba(190,194,214,0.62); }
 .bc-yt-inline { margin-top: 6px; border-radius: 10px; }
 @keyframes bcYtIn { from { opacity: 0 } to { opacity: 1 } }
@@ -1429,7 +1430,9 @@ const YouTubeLightbox = ({id, url, title, onClose}) => {
 
 // inline: drawn under a text message (padded, own radius) rather than as
 // the bubble's whole body.
-const YouTubeCard = ({url, caption = '', corners = null, inline = false}) => {
+// `full`: the caption is a whole message (a YouTube link sent as text), so
+// it's shown in full rather than clipped to two lines.
+const YouTubeCard = ({url, caption = '', corners = null, inline = false, full = false}) => {
   ensureYouTubeStyles();
   const id = bcYouTubeId(url);
   const [open, setOpen] = React.useState(false);
@@ -1450,7 +1453,7 @@ const YouTubeCard = ({url, caption = '', corners = null, inline = false}) => {
         <span className="bc-yt-foot">
           <span className="bc-yt-logo"><BcYtLogo/></span>
           <span className="bc-yt-txt">
-            {cap && <span className="bc-yt-cap">{cap}</span>}
+            {cap && <span className={'bc-yt-cap' + (full ? ' is-full' : '')}>{cap}</span>}
             <span className="bc-yt-src">YouTube · Play here</span>
           </span>
         </span>
@@ -3032,9 +3035,13 @@ const ChatBubbleRowImpl = ({m, msg, sz=28, style={}, isGroupStart=true, isGroupE
   // A YouTube attachment carries its caption in its own footer.
   const ytCard = mediaKind === 'youtube';
   if (ytCard && bodyText) bodyText = bodyText.replace(BC_YT_RE, '').trim();
-  // A plain text message with a YouTube link gets the player card under it.
+  // A plain text message with a YouTube link gets the player card. Like a
+  // picture, the player fills the bubble edge to edge and the words sit
+  // under it in the card's footer. A quoted one keeps the bubble's padding
+  // (the quote sits above it) and draws the player inset below the text.
   const ytInText = !mediaKind && !rich && !m.del ? bcYouTubeUrlIn(bodyText) : '';
-  const mediaEdge = imageCard || (mediaKind === 'video' && !bodyText) || (ytCard && !m.rq);
+  const ytEdge = !!ytInText && !m.rq;
+  const mediaEdge = imageCard || (mediaKind === 'video' && !bodyText) || (ytCard && !m.rq) || ytEdge;
   // A document (or one still downloading / unavailable) is drawn as a file
   // card that fills the bubble, so the bubble drops to a thin frame around
   // it instead of wrapping a second box in its own padding.
@@ -3263,10 +3270,14 @@ const ChatBubbleRowImpl = ({m, msg, sz=28, style={}, isGroupStart=true, isGroupE
           caption={imageCard || ytCard ? bodyText : ''}
           label={imageCard && isGroupStart ? (isBot ? `AI · ${m.agent || msg.agent}` : (isOut && !hideYou) ? 'You' : null) : null}
           labelWho={isBot ? 'ai' : ''}/>
-        {bodyText && !imageCard && !ytCard && mediaKind !== 'link' && (rich
+        {bodyText && !imageCard && !ytCard && !ytEdge && mediaKind !== 'link' && (rich
           ? <GhostRichText text={bodyText} reveal={reveal}/>
           : <div className="b-text">{bodyText}</div>)}
-        {ytInText && <YouTubeCard url={ytInText} inline/>}
+        {ytInText && (ytEdge
+          ? <YouTubeCard url={ytInText} caption={bodyText} full
+              corners={{borderTopLeftRadius: radius.tl, borderTopRightRadius: radius.tr,
+                        borderBottomLeftRadius: radius.bl, borderBottomRightRadius: radius.br}}/>
+          : <YouTubeCard url={ytInText} inline/>)}
         {(m.ed || m.del || m.err || (m._pending && m._pending !== 'send')) ? (
           <div className="b-foot" style={mediaEdge ? {padding:'0 10px 6px'} : undefined}>
             {m._pending === 'slow'   && <span>sending…</span>}
