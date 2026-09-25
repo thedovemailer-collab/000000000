@@ -383,7 +383,11 @@ function bcBridgeSend(action, payload) {
   try {
     const b = window.BotBridge;
     if (!b || typeof b.send !== 'function') return false;
-    if (typeof b.isWebView2 === 'function' && !b.isWebView2()) return false;
+    // No desktop app: what the server can send for a connected bot goes
+    // there (see BC_RELAY); anything else can't be done here.
+    if (typeof b.isWebView2 === 'function' && !b.isWebView2()) {
+      return typeof BC_RELAY !== 'undefined' && BC_RELAY.route(action, payload || {});
+    }
     b.send(action, payload || {});
     return true;
   } catch (_) { return false; }
@@ -866,6 +870,250 @@ const SEND_TAGS = {
     try { SEND_TAGS.noteSend(pl, c, 'media', url, reqId); } catch (_) {}
     b.send('sendMedia', { platform: pl, chatId: c, mediaUrl: url, caption: caption || '',
                           mediaKind: kind || 'photo', fileName: fileName || '', reqId });
+  };
+})();
+
+// ── BOT RELAY (see BOT RELAY in api.php) ──────────────────────────────
+// Telegram bots (BotFather) and Discord bots answered by the server.
+//   • In a browser (no desktop app) the server receives their messages and
+//     its agent answers them. This page shows those chats live
+//     (bot_relay_feed), and what you send from here — a reply you type, a
+//     file, an edit, a delete — goes out through the server
+//     (bot_relay_send) instead of the desktop host.
+//   • In the desktop app, the page tells the server every 30s which bots it
+//     is receiving for itself (bot_host_ping) and when it closes
+//     (bot_host_away). The server only steps in while it's gone.
+// A personal Telegram account (the User API) still needs the desktop app.
+const BC_RELAY = {
+  state: { telegram: { on: false }, discord: { on: false } },
+  loaded: false,
+  cursor: 0,
+  subs: new Set(),
+  sub(fn) { this.subs.add(fn); return () => this.subs.delete(fn); },
+  notify() { this.subs.forEach(fn => { try { fn(); } catch (_) {} }); },
+  inHost() { try { const b = window.BotBridge; return !!(b && typeof b.isWebView2 === 'function' && b.isWebView2()); } catch (_) { return false; } },
+  // The server sends for this platform from this page: its bot is on and
+  // no desktop app is running it right now.
+  canSend(p) { const s = this.state[p]; return !!(s && s.on && !s.host); },
+  _apply(relays) {
+    if (!relays) return;
+    this.state = { telegram: relays.telegram || { on: false }, discord: relays.discord || { on: false } };
+    this.loaded = true;
+    // In a browser nothing else reports the connection, so the server's
+    // word is it (Settings, the inbox and the chat header read CONN_STORE).
+    if (!this.inHost() && typeof CONN_STORE !== 'undefined') {
+      ['telegram', 'discord'].forEach(p => {
+        const s = this.state[p] || {};
+        const cur = CONN_STORE[p] || {};
+        const next = { connected: !!s.on && !s.error, via: s.on ? 'server' : '', botName: s.bot_name || '',
+                       username: s.username || '', botId: s.bot_id || '', error: s.on ? (s.error || '') : '' };
+        if (Object.keys(next).some(k => (cur[k] || '') !== (next[k] || ''))) CONN_STORE.set(p, next);
+      });
+    }
+    this.notify();
+  },
+  async refresh() {
+    const r = await apiGet('bot_relay_status');
+    if (r && r.relays) this._apply(r.relays);
+    return r;
+  },
+  // Connect a bot to the server (checks the token with Telegram / Discord).
+  async connect(p, token) {
+    const r = await apiFetch('bot_relay_connect', { platform: p, token: token || '' });
+    if (r && r.relays) this._apply(r.relays);
+    if (r && r.ok) this._schedule(300);
+    return r;
+  },
+  async disconnect(p) {
+    const r = await apiFetch('bot_relay_disconnect', { platform: p });
+    if (r && r.relays) this._apply(r.relays);
+    return r;
+  },
+
+  // ── Sends from this page when there's no desktop app ──
+  // Answers with the same events the desktop host would (sendOk,
+  // sendError, editResult, deleteResult). true = handled here.
+  ACTIONS: ['sendMessage', 'sendMedia', 'sendChatAction', 'editMessage', 'deleteMessages'],
+  route(action, payload) {
+    if (this.inHost() || this.ACTIONS.indexOf(action) < 0) return false;
+    const pl = payload || {};
+    const p = pl.platform;
+    if (p !== 'telegram' && p !== 'discord') return false;
+    const fire = (event, data) => { try { window.dispatchEvent(new CustomEvent('bcEvent', { detail: { event, data } })); } catch (_) {} };
+    const fail = (error) => {
+      if (action === 'sendMessage' || action === 'sendMedia') fire('sendError', { platform: p, chatId: pl.chatId, error, reqId: pl.reqId || '', text: pl.text || pl.caption || '' });
+      else if (action === 'editMessage') fire('editResult', { platform: p, chatId: pl.chatId, messageId: pl.messageId, reqId: pl.reqId || '', ok: false, error, text: pl.text || '' });
+      else if (action === 'deleteMessages') fire('deleteResult', { platform: p, chatId: pl.chatId, messageIds: [], requested: pl.messageIds || [], reqId: pl.reqId || '', ok: false, error });
+    };
+    if (!this.canSend(p)) {
+      if (action !== 'sendChatAction') {
+        fail(this.state[p] && this.state[p].host ? 'Your desktop app is running this bot right now. Send from there.'
+                                                 : 'This bot isn’t connected. Connect it in Settings → Connections.');
+      }
+      return true;
+    }
+    apiFetch('bot_relay_send', { ...pl, op: action }).then(r => {
+      if (r && r.event) fire(r.event, r.data);
+      else if (action !== 'sendChatAction') fail((r && r.error) || 'Couldn’t reach the server.');
+    });
+    return true;
+  },
+
+  // ── The live view (browser) ──
+  _timer: null, _busy: false, _ticking: false, _started: false, _inited: false,
+  start() {
+    if (this._started) return;
+    this._started = true;
+    if (this.inHost()) { this._startHost(); return; }
+    this._schedule(400);
+  },
+  stop() {
+    this._started = false;
+    clearTimeout(this._timer); this._timer = null;
+    clearInterval(this._hostTimer); this._hostTimer = null;
+    if (this._unsubConn) { this._unsubConn(); this._unsubConn = null; }
+    this.cursor = 0;
+    this._inited = false;
+    this.state = { telegram: { on: false }, discord: { on: false } };
+    this.loaded = false;
+    this.notify();
+  },
+  _schedule(ms) {
+    clearTimeout(this._timer);
+    if (!this._started || this.inHost()) return;
+    this._timer = setTimeout(() => this._poll(), ms);
+  },
+  async _poll() {
+    if (this._busy) { this._schedule(1000); return; }
+    this._busy = true;
+    let next = 30000;
+    try {
+      // The first call only learns where to start (the inbox has loaded
+      // the history itself); after that, everything newer.
+      const r = await apiFetch('bot_relay_feed', this._inited ? { since: this.cursor || 0 } : { init: 1 });
+      if (r && r.ok) {
+        this._apply(r.relays);
+        if (this._inited) this._merge(r.conversations || [], r.messages || []);
+        this._inited = true;
+        this.cursor = Math.max(this.cursor, Number(r.cursor) || 0);
+        const on = ['telegram', 'discord'].some(p => this.state[p] && this.state[p].on);
+        next = on ? (document.hidden ? 15000 : 4000) : 30000;
+        // No background worker on this server right now: this page runs
+        // the reply that's due (the server does the work, in this request).
+        if (r.due) this._tick();
+      }
+    } catch (_) {}
+    finally { this._busy = false; this._schedule(next); }
+  },
+  _tick() {
+    if (this._ticking) return;
+    this._ticking = true;
+    apiFetch('bot_relay_tick', { run: 1 }).catch(() => {}).finally(() => { this._ticking = false; this._schedule(600); });
+  },
+  // New rows from the server into the inbox and any open thread.
+  _merge(convRows, msgs) {
+    if (typeof MSGS_STORE === 'undefined' || (!convRows.length && !msgs.length)) return;
+    const S = MSGS_STORE;
+    const before = new Set(S.list.map(c => c.id));
+    const touched = new Set();
+    convRows.forEach(r => {
+      const ex = S.list.find(c => c.id === r.id);
+      if (!ex) {
+        S.load([r]);
+        try { BC_NOTIFY.fire('newChat', { title: 'New conversation', body: `${r.name || 'Someone'}: ${r.last_msg || ''}`, convId: r.id }); } catch (_) {}
+      } else {
+        if (r.name) ex.name = r.name;
+        if (r.handle) ex.handle = r.handle;
+        if (r.avatar) ex.avatar = r.avatar;
+        ex.last = r.last_msg; ex.t = r.last_t; ex.ts = convTsFromRow(r);
+        ex.auto_reply = parseInt(r.auto_reply) === 1;
+        ex.agent_id = r.agent_id ? parseInt(r.agent_id) : null;
+        if (r.agent) ex.agent = r.agent;
+      }
+      touched.add(r.id);
+    });
+    msgs.forEach(m => {
+      const key = m.conv_id;
+      const conv = S.list.find(c => c.id === key);
+      const th = S.threads[key];
+      if (th) {
+        // Already here: the same server row, the same platform message, or
+        // a bubble this page sent a moment ago (its save may not have
+        // landed yet, so it has no id to match).
+        const hit = th.find(x => (x.id && Number(x.id) === m.id) || (m.uid && x.uid === m.uid)
+          || (m.r !== 'in' && x.r === m.r && !x.id && (x.c || '') === (m.c || '') && Math.abs((x.ts || 0) - m.ts) < 120000));
+        if (hit) { if (!hit.id) hit.id = m.id; if (m.uid && !hit.uid) hit.uid = m.uid; }
+        else {
+          const row = { ...m };
+          delete row.conv_id;
+          if (!row.err) delete row.err;
+          th.push(row);
+        }
+      }
+      if (m.r === 'in' && conv && before.has(key)) {
+        const open = S.activeConvId === key;
+        if (!open) {
+          conv.unread = (conv.unread || 0) + 1;
+          try { BC_NOTIFY.fire('newMessage', { title: conv.name || 'New message', body: m.c || (m.mn ? '📎 ' + m.mn : 'New message'), convId: key }); } catch (_) {}
+        }
+      }
+    });
+    if (touched.size) {
+      const top = S.list.filter(c => touched.has(c.id)).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      S.list = [...top, ...S.list.filter(c => !touched.has(c.id))];
+    }
+    touched.forEach(id => { if (S.threads[id]) S.threads[id] = [...S.threads[id]]; });
+    S.notify();
+  },
+
+  // ── The desktop app's side ──
+  _hostTimer: null, _unsubConn: null,
+  _startHost() {
+    const ping = () => {
+      if (!AUTH_STORE.account || typeof CONN_STORE === 'undefined') return;
+      const c = (p) => {
+        const s = CONN_STORE[p] || {};
+        // Telegram through your own account (User API) isn't a bot the
+        // server can run; the host says which one is connected.
+        const userApi = p === 'telegram' && (s.mode ? s.mode === 'user' : !String(CRED_STORE.get('tg_bot_token') || '').trim());
+        return { connected: !!s.connected, bot_id: s.botId || '', bot_name: s.botName || '', username: s.username || '', user_api: userApi };
+      };
+      apiFetch('bot_host_ping', { telegram: c('telegram'), discord: c('discord') }).then(r => { if (r && r.relays) this._apply(r.relays); });
+    };
+    this._hostTimer = setInterval(ping, 30000);
+    setTimeout(ping, 1500);
+    // A change is told a moment later: a bot connected just now had its
+    // token saved a moment before, and the server needs it to take over.
+    let last = '', soon = null;
+    this._unsubConn = CONN_STORE.sub(() => {
+      const k = ['telegram', 'discord'].map(p => (CONN_STORE[p] && CONN_STORE[p].connected) ? 1 : 0).join('');
+      if (k !== last) { last = k; clearTimeout(soon); soon = setTimeout(ping, 1200); }
+    });
+  },
+  // The desktop app is closing: the server takes its bots over now.
+  hostAway() {
+    if (!this.inHost() || !this._started) return Promise.resolve();
+    try {
+      return fetch(`${API}?action=bot_host_away`, { method: 'POST', keepalive: true, credentials: 'include',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'bot_host_away' }) }).catch(() => {});
+    } catch (_) { return Promise.resolve(); }
+  },
+};
+const useRelay = () => {
+  const [, force] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => BC_RELAY.sub(force), []);
+  return BC_RELAY;
+};
+// Every send the page asks of the desktop host goes through BotBridge.send.
+// Without the host, the ones the server can do go there instead.
+(function relayBridgeSends() {
+  const b = (typeof window !== 'undefined') ? window.BotBridge : null;
+  if (!b || b.__bcRelay || typeof b.send !== 'function') return;
+  b.__bcRelay = true;
+  const orig = b.send;
+  b.send = function (action, payload) {
+    try { if (BC_RELAY.route(action, payload)) return; } catch (_) {}
+    return orig.call(b, action, payload);
   };
 })();
 
@@ -7989,7 +8237,7 @@ const DM_STORE = {
       // `src` keeps the text as sent for the agent's history.
       // Deleted for everyone by its sender (see DM_STORE.deleteMessage).
       if (body && body.k === 'del') {
-        const gone = { c: '', del: true, mu: '', mt: '', mn: '', ms: 0, mp: false, me: '', src: '', dmf: null };
+        const gone = { c: '', del: true, mu: '', mt: '', mn: '', ms: 0, mp: false, me: '', src: '', dmf: null, rq: null, rt: '', _q: null };
         return (mineOut && m.ai) ? { ...base, r: 'bot', agent: DM_AI.agentName(m.ai), aiId: m.ai, ...gone } : { ...base, ...gone };
       }
       const sent = body && body.k === 'file' && body.f && Number(body.f.id) ? body.f : null;
@@ -7998,6 +8246,14 @@ const DM_STORE = {
         ? { c: String(body.c || ''), mt: DM_FILES.kindOf(sent), mn: String(sent.n || 'file'), ms: Number(sent.s) || 0,
             src: text || DM_FILES.label(sent, body.c), dmf: sent, ...DM_FILES.fields(sent) }
         : file ? { c: file.c, mt: file.mt, mu: file.mu, mn: file.mn, src: text } : { c: text };
+      // A reply carries the message it answers (see DM_STORE._quoteFor):
+      // whose it was is worked out from this side, so both people see the
+      // right name on it.
+      const q = body && body.q && body.q.uid ? body.q : null;
+      if (q) {
+        const who = Number(q.from) === Number(me) ? (q.ai ? 'bot' : 'out') : 'in';
+        Object.assign(content, { _q: q, rt: String(q.uid), rq: { uid: String(q.uid), r: who, c: String(q.c || ''), mt: String(q.mt || '') } });
+      }
       // Written by one of this account's agents (the server only tells the
       // sender): drawn like any other chat's AI message.
       if (mineOut && m.ai) return { ...base, r: 'bot', agent: DM_AI.agentName(m.ai), aiId: m.ai, ...content };
@@ -8163,6 +8419,7 @@ const DM_STORE = {
     const file = dmFileFromText(body);
     if (file) Object.assign(row, { c: file.c, mt: file.mt, mu: file.mu, mn: file.mn, src: body });
     if (opts.ai) { row.agent = opts.ai.name; row.aiId = opts.ai.id; }
+    if (opts.reply) this._setReply(th, row, opts.reply);
     // A queued message (an agent's reply bubble, or a payment message from
     // the outbox): the server marks it sent in the same request that stores
     // it, so it can never go out twice (see dm_send's `ob`).
@@ -8182,7 +8439,26 @@ const DM_STORE = {
   // One attachment from the composer ({ file, url, name, mime, size, kind }),
   // with an optional caption, as its own message. The bubble shows it at
   // once from the local copy while it's encrypted, uploaded and sent.
-  async sendFile(tid, att, caption) {
+  // ── REPLIES ──────────────────────────────────────────────────────────
+  // A reply carries a small snapshot of the message it answers, inside the
+  // encrypted body: its uid (to jump to it), whose it was (by account, so
+  // each side can say "You" or the other person's name) and a clipped copy
+  // of its text or what it holds.
+  _quoteFor(th, row) {
+    if (!th || !row || !row.uid || row.locked || row.del) return null;
+    const mine = row.r !== 'in';
+    const t = String(row.c || '').replace(/\s+/g, ' ').trim();
+    return { uid: String(row.uid), from: mine ? Number(DM_KEYS.acc) : Number(th.peer.id), ai: row.r === 'bot' ? 1 : 0,
+      c: t.length > 280 ? t.slice(0, 279) + '…' : t, mt: String(row.mt || '') };
+  },
+  _setReply(th, row, target) {
+    const q = this._quoteFor(th, target);
+    if (!q) return;
+    row._q = q;
+    row.rt = q.uid;
+    row.rq = { uid: q.uid, r: target.r === 'in' ? 'in' : target.r === 'bot' ? 'bot' : 'out', c: q.c, mt: q.mt };
+  },
+  async sendFile(tid, att, caption, reply) {
     const th = this.threads.get(tid);
     if (!th || !att || !(att.file || att.url)) return false;
     const why = this.sendBlocker(tid);
@@ -8194,6 +8470,7 @@ const DM_STORE = {
     const cap = String(caption || '').replace(/\s+$/, '');
     const row = { id: uid, uid, r: 'out', c: cap, mt: att.kind, mu: att.url, mn: att.name, ms: att.size,
       ts: now.toISOString(), t: convStamp(now), _pending: 'send', _att: att, _cap: cap };
+    if (reply) this._setReply(th, row, reply);
     th.msgs.push(row); th.byUid.set(uid, row);
     this._slowAfter(row);
     this._syncConv(th); this.notify();
@@ -8305,6 +8582,7 @@ const DM_STORE = {
       const k = await DM_KEYS.keyFor(mine.id, pk.id, th.peer.id);
       if (!k) throw new Error('Missing key');
       const body = del ? { v: 1, k: 'del', at: Date.now() } : { v: 1, k: 'text', t: text, at: Date.now() };
+      if (!del && row._q) body.q = row._q;        // an edited reply is still a reply
       const sealed = await DM_CRYPTO.seal(k, body, DM_CRYPTO.aad(env));
       let agentEnv = null;
       if (agentKey) {
@@ -8410,8 +8688,10 @@ const DM_STORE = {
         sender_key: mine.id, recipient_key: pk.id, uid: row.uid };
       const k = await DM_KEYS.keyFor(mine.id, pk.id, th.peer.id);
       if (!k) throw new Error('Missing key');
-      // A file message carries the file's description (and key) instead.
+      // A file message carries the file's description (and key) instead;
+      // a reply, the message it answers.
       const body = row._fileBody ? { ...row._fileBody, at: Date.now() } : { v: 1, k: 'text', t: text, at: Date.now() };
+      if (row._q) body.q = row._q;
       const sealed = await DM_CRYPTO.seal(k, body, DM_CRYPTO.aad(env));
       let agentEnv = null;
       if (agentKey) {
@@ -9363,6 +9643,27 @@ const useDmAi = () => {
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden && DM_STORE._running) { DM_STORE._schedule(250); if (DM_STORE.active) DM_STORE.markRead(DM_STORE.active); }
     });
+  }
+})();
+
+// Server-run bots (BC_RELAY) follow the signed-in account too. Closing the
+// desktop app hands its bots to the server at once (as dm_away does for
+// direct chats), rather than after the presence timeout.
+(() => {
+  let lastId = 0;
+  const onAuth = (account) => {
+    const id = account && account.id ? Number(account.id) : 0;
+    if (id === lastId) return;
+    lastId = id;
+    BC_RELAY.stop();
+    if (id) BC_RELAY.start();
+  };
+  AUTH_STORE.sub((account) => onAuth(account));
+  if (AUTH_STORE.account) onAuth(AUTH_STORE.account);
+  const dmAway = window.bcGoingAway;
+  window.bcGoingAway = () => Promise.all([dmAway ? dmAway() : null, BC_RELAY.hostAway()]).then(() => {});
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden && BC_RELAY._started) BC_RELAY._schedule(200); });
   }
 })();
 

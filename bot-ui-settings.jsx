@@ -85,12 +85,12 @@ const ConnectedChip = ({platform, conn, profileMeta, onDisconnect, isWV2}) => {
 
 // ── Framed inline input — used inside sub-popup forms. Label is
 // inline, optional info icon and reveal button on the right. ──
-const FInput = ({label, value, onChange, placeholder, type='text', info}) => {
+const FInput = ({label, value, onChange, placeholder, type='text', info, disabled}) => {
   const [show, setShow] = React.useState(false);
   const isPwd = type === 'password';
   const inputType = isPwd && show ? 'text' : type;
   return (
-    <div className="sset-finput">
+    <div className="sset-finput" data-off={disabled ? '1' : undefined}>
       {label && <span className="sset-finput-lbl">{label}</span>}
       <input
         className="sset-finput-input"
@@ -98,9 +98,10 @@ const FInput = ({label, value, onChange, placeholder, type='text', info}) => {
         value={value || ''}
         onChange={e=>onChange(e.target.value)}
         placeholder={placeholder}
+        disabled={!!disabled}
       />
       {isPwd && (
-        <button className="sset-finput-act" type="button"
+        <button className="sset-finput-act" type="button" disabled={!!disabled}
           onClick={()=>setShow(s=>!s)}
           aria-label={show?'Hide':'Show'}>
           {show ? (
@@ -5432,6 +5433,10 @@ const SS_Platforms = ({platform, bare} = {}) => {
   const creds = useCreds();
   const bridge = window.BotBridge;
   const isWV2 = !!(bridge && bridge.isWebView2 && bridge.isWebView2());
+  // Without the desktop app, bot tokens are run by the server (BC_RELAY);
+  // a personal Telegram account (the User API) can't be.
+  useRelay();
+  const [relayErr, setRelayErr] = React.useState({ telegram: '', discord: '' });
 
   const [fld, setFld] = React.useState({
     tgToken:'', tgApiId:'', tgApiHash:'', tgPhone:'',
@@ -5513,8 +5518,27 @@ const SS_Platforms = ({platform, bare} = {}) => {
   // (the .NET host + supervisor + backend read those) and issues the connect.
   // The .NET host runs one live client per platform, so this transparently
   // switches the active account.
+  // In a browser: the server checks the token and starts answering.
+  const connectViaServer = (p, a, setBusy) => {
+    PLATFORM_ACCOUNTS.setActive(p, a.id);
+    PLATFORM_ACCOUNTS.mirrorToLegacy(p, a.id);
+    setBusy(true);
+    setRelayErr(e => ({ ...e, [p]: '' }));
+    BC_RELAY.connect(p, a.token || '').then(r => {
+      setBusy(false);
+      if (r && r.ok) {
+        const s = (r.relays && r.relays[p]) || {};
+        CONN_STORE.addLog(p, 'ok', 'Running on the server' + (s.username ? ' as @' + s.username : ''));
+      } else {
+        const why = (r && r.error) || 'Couldn’t connect.';
+        setRelayErr(e => ({ ...e, [p]: why }));
+        CONN_STORE.addLog(p, 'error', why);
+      }
+    });
+  };
   const connectTgAccount = (a) => {
-    if (!isWV2 || !a) return;
+    if (!a) return;
+    if (!isWV2) { if (a.mode === 'bot') connectViaServer('telegram', a, setTgBusy); return; }
     CONN_SUPPRESS.telegram = false;
     PLATFORM_ACCOUNTS.setActive('telegram', a.id);
     PLATFORM_ACCOUNTS.mirrorToLegacy('telegram', a.id);
@@ -5524,7 +5548,8 @@ const SS_Platforms = ({platform, bare} = {}) => {
     else bridge.connectTelegramUser(a.apiId || '', a.apiHash || '', a.phone || '');
   };
   const connectDcAccount = (a) => {
-    if (!isWV2 || !a) return;
+    if (!a) return;
+    if (!isWV2) { connectViaServer('discord', a, setDcBusy); return; }
     CONN_SUPPRESS.discord = false;
     PLATFORM_ACCOUNTS.setActive('discord', a.id);
     PLATFORM_ACCOUNTS.mirrorToLegacy('discord', a.id);
@@ -5533,14 +5558,18 @@ const SS_Platforms = ({platform, bare} = {}) => {
     bridge.connectDiscord(a.token || '');
   };
 
+  // Disconnecting also stops the server answering the bot (it would
+  // otherwise take over once the desktop app closes).
   const disconnectTg = () => {
     CONN_SUPPRESS.telegram = true; setTgBusy(false);
     if (isWV2) bridge.disconnectTelegram();
+    BC_RELAY.disconnect('telegram');
     CONN_STORE.set('telegram', { connected:false, botName:'', username:'', botId:'', avatar:'', error:'' });
   };
   const disconnectDc = () => {
     CONN_SUPPRESS.discord = true; setDcBusy(false);
     if (isWV2) bridge.disconnectDiscord();
+    BC_RELAY.disconnect('discord');
     CONN_STORE.set('discord', { connected:false, botName:'', username:'', botId:'', avatar:'', error:'' });
   };
 
@@ -5578,7 +5607,7 @@ const SS_Platforms = ({platform, bare} = {}) => {
   // ── Saved-account row ────────────────────────────────────────
   // Status first, actions second. Edit/Remove stay hidden until hover so
   // a connected account reads as a calm status line.
-  const AcctRow = ({live, busy, name, meta, onConnect, onDisconnect, onEdit, onRemove, anyBusy}) => (
+  const AcctRow = ({live, busy, name, meta, onConnect, onDisconnect, onEdit, onRemove, anyBusy, needsDesktop}) => (
     <div className="sset-acct" data-live={live?'1':'0'}>
       <Pip col={live?'var(--ok)':(busy?'var(--warn,#e8a844)':'var(--t4)')} sz={7} pulse={live||busy}/>
       <div className="sset-acct-text">
@@ -5599,17 +5628,27 @@ const SS_Platforms = ({platform, bare} = {}) => {
           </svg>
         </button>
         {live ? (
-          <button className="sset-btn" data-variant="danger" onClick={onDisconnect} disabled={!isWV2}>Disconnect</button>
+          <button className="sset-btn" data-variant="danger" onClick={onDisconnect}>Disconnect</button>
         ) : (
           <button className="sset-btn" data-variant="primary" onClick={onConnect}
-            disabled={!isWV2 || anyBusy}
-            title={!isWV2 ? 'Requires the desktop app' : undefined}>
+            disabled={(needsDesktop && !isWV2) || anyBusy}
+            title={needsDesktop && !isWV2 ? 'Needs the desktop app' : undefined}>
             {busy ? 'Connecting…' : 'Connect'}
           </button>
         )}
       </div>
     </div>
   );
+
+  // One quiet line on where the bot runs. In a browser: bots run on the
+  // server, a personal account needs the desktop app. In the desktop app,
+  // once a bot is connected: it keeps answering after the app is closed.
+  const RunsWhere = ({p, live}) => {
+    const txt = !isWV2
+      ? (p === 'telegram' ? 'In the browser, bots run on our server. Personal accounts need the desktop app.' : 'In the browser, bots run on our server.')
+      : (live && (p === 'discord' || (PLATFORM_ACCOUNTS.get('telegram', tgActiveId) || {}).mode !== 'user') ? 'Keeps replying from the server while this app is closed.' : '');
+    return txt ? <div className="sset-form-hint sset-runs-where">{txt}</div> : null;
+  };
 
   // ── Collapsible diagnostics ──────────────────────────────────
   const LogPanel = () => (
@@ -5648,13 +5687,14 @@ const SS_Platforms = ({platform, bare} = {}) => {
   );
 
   // ── Form action bar — identical on every add/edit form ───────
-  const FormActions = ({onCancel, onSave, onSaveConnect, canSave, busyLabel, primaryLabel}) => (
+  // needsDesktop: only the desktop app can connect it (a personal account).
+  const FormActions = ({onCancel, onSave, onSaveConnect, canSave, busyLabel, primaryLabel, needsDesktop}) => (
     <div className="sset-pop-actions">
       <button className="sset-btn" onClick={onCancel}>Cancel</button>
       <button className="sset-btn" onClick={onSave} disabled={!canSave}>Save only</button>
       <button className="sset-btn" data-variant="primary" onClick={onSaveConnect}
-        disabled={!isWV2 || !canSave || !!busyLabel}
-        title={!isWV2 ? 'Requires the desktop app' : undefined}>
+        disabled={(needsDesktop && !isWV2) || !canSave || !!busyLabel}
+        title={needsDesktop && !isWV2 ? 'Needs the desktop app' : undefined}>
         {busyLabel || primaryLabel}
       </button>
     </div>
@@ -5673,12 +5713,13 @@ const SS_Platforms = ({platform, bare} = {}) => {
                   const live = tgActiveId === a.id && tgConn.connected;
                   const busyThis = tgActiveId === a.id && tgBusy && !tgConn.connected;
                   const modeLbl = a.mode === 'user' ? 'Personal account' : 'Bot';
-                  const sub = a.mode === 'user' ? (a.phone || 'User API') : 'BotFather token';
+                  const desk = a.mode === 'user' && !isWV2;
+                  const sub = desk ? 'Needs the desktop app' : a.mode === 'user' ? (a.phone || 'User API') : 'BotFather token';
                   return (
                     <AcctRow key={a.id}
-                      live={live} busy={busyThis} anyBusy={tgBusy}
+                      live={live} busy={busyThis} anyBusy={tgBusy} needsDesktop={a.mode === 'user'}
                       name={a.label || modeLbl}
-                      meta={`${modeLbl} · ${live ? 'Connected' : busyThis ? 'Connecting…' : sub}`}
+                      meta={`${modeLbl} · ${live ? (tgConn.via === 'server' ? 'Running on the server' : 'Connected') : busyThis ? 'Connecting…' : sub}`}
                       onConnect={()=>connectTgAccount(a)}
                       onDisconnect={disconnectTg}
                       onEdit={()=>startEditTg(a)}
@@ -5701,6 +5742,7 @@ const SS_Platforms = ({platform, bare} = {}) => {
                 <div className="sset-form-hint" style={{marginTop:-2}}>
                   {tgMode === 'bot'
                     ? 'A bot replies to people who message it.'
+                    : !isWV2 ? <span className="sset-desk-note">Needs the desktop app.</span>
                     : 'Uses your own account, so it can start chats too.'}
                 </div>
 
@@ -5720,12 +5762,12 @@ const SS_Platforms = ({platform, bare} = {}) => {
                 ) : (
                   <>
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-                      <FInput label="API ID" value={fld.tgApiId} onChange={v=>sv('tgApiId',v)} placeholder="12345678"/>
-                      <FInput label="API hash" type="password" value={fld.tgApiHash} onChange={v=>sv('tgApiHash',v)} placeholder="abc123…"/>
+                      <FInput label="API ID" value={fld.tgApiId} onChange={v=>sv('tgApiId',v)} placeholder="12345678" disabled={!isWV2}/>
+                      <FInput label="API hash" type="password" value={fld.tgApiHash} onChange={v=>sv('tgApiHash',v)} placeholder="abc123…" disabled={!isWV2}/>
                     </div>
-                    <FInput label="Phone number" value={fld.tgPhone} onChange={v=>sv('tgPhone',v)} placeholder="+1 650 555 0100"
+                    <FInput label="Phone number" value={fld.tgPhone} onChange={v=>sv('tgPhone',v)} placeholder="+1 650 555 0100" disabled={!isWV2}
                       info={<>Telegram sends a login code. If you use 2FA you'll also need your password.</>}/>
-                    <FormActions
+                    <FormActions needsDesktop
                       canSave={!!(fld.tgApiId.trim() && fld.tgApiHash.trim() && fld.tgPhone.trim())}
                       busyLabel={tgBusy ? 'Authorising…' : ''}
                       primaryLabel="Save & sign in"
@@ -5735,17 +5777,19 @@ const SS_Platforms = ({platform, bare} = {}) => {
                   </>
                 )}
 
-                {tgConn.error && <div className="sset-inline-err">{tgConn.error}</div>}
+                {(relayErr.telegram || tgConn.error) && <div className="sset-inline-err">{relayErr.telegram || tgConn.error}</div>}
               </div>
             ) : (<>
+              {(relayErr.telegram || (!isWV2 && tgConn.error)) && <div className="sset-inline-err" style={{marginTop:8}}>{relayErr.telegram || tgConn.error}</div>}
               <button className="sset-addbtn" onClick={startAddTg} style={{marginTop:tgList.length?8:0}}>
                 <span style={{fontSize:14,lineHeight:1}}>+</span>
                 Add {tgList.length ? 'another ' : ''}Telegram account
               </button>
-              {tgList.length === 0 && (
+              {tgList.length === 0 && isWV2 && (
                 <div className="sset-form-hint" style={{marginTop:6}}>Use a bot token, or sign in with your own account.</div>
               )}
             </>)}
+            <RunsWhere p="telegram" live={tgConn.connected}/>
           </div>
 
           <div className="sset-pop-section">
@@ -5756,9 +5800,9 @@ const SS_Platforms = ({platform, bare} = {}) => {
                   Reconnect automatically
                   <span className="sset-form-hint">After a restart or a dropped connection.</span>
                 </label>
-                <div className="sset-form-row-ctl">
+                <div className="sset-form-row-ctl" data-off={!isWV2 ? '1' : undefined} title={!isWV2 ? 'Desktop app only' : undefined}>
                   <SsetTgl checked={(creds.values||{}).tg_auto_reconnect !== '0'}
-                    onChange={on=>CRED_STORE.set('tg_auto_reconnect', on?'1':'0')}/>
+                    onChange={on=>{ if (isWV2) CRED_STORE.set('tg_auto_reconnect', on?'1':'0'); }}/>
                 </div>
               </div>
             </div>
@@ -5782,7 +5826,7 @@ const SS_Platforms = ({platform, bare} = {}) => {
                     <AcctRow key={a.id}
                       live={live} busy={busyThis} anyBusy={dcBusy}
                       name={a.label || 'Discord bot'}
-                      meta={`Bot · ${live ? 'Connected' : busyThis ? 'Connecting…' : 'Bot token'}`}
+                      meta={`Bot · ${live ? (dcConn.via === 'server' ? 'Running on the server' : 'Connected') : busyThis ? 'Connecting…' : 'Bot token'}`}
                       onConnect={()=>connectDcAccount(a)}
                       onDisconnect={disconnectDc}
                       onEdit={()=>startEditDc(a)}
@@ -5808,9 +5852,10 @@ const SS_Platforms = ({platform, bare} = {}) => {
                   onSaveConnect={()=>saveDcAccount(true)}
                   onSave={()=>saveDcAccount(false)}
                   onCancel={()=>setDcEditing(null)}/>
-                {dcConn.error && <div className="sset-inline-err">{dcConn.error}</div>}
+                {(relayErr.discord || dcConn.error) && <div className="sset-inline-err">{relayErr.discord || dcConn.error}</div>}
               </div>
             ) : (<>
+              {(relayErr.discord || (!isWV2 && dcConn.error)) && <div className="sset-inline-err" style={{marginTop:8}}>{relayErr.discord || dcConn.error}</div>}
               <button className="sset-addbtn" onClick={startAddDc} style={{marginTop:dcList.length?8:0}}>
                 <span style={{fontSize:14,lineHeight:1}}>+</span>
                 Add {dcList.length ? 'another ' : ''}Discord bot
@@ -5819,6 +5864,7 @@ const SS_Platforms = ({platform, bare} = {}) => {
                 <div className="sset-form-hint" style={{marginTop:6}}>Paste a bot token from the Discord developer portal.</div>
               )}
             </>)}
+            <RunsWhere p="discord" live={dcConn.connected}/>
           </div>
 
           <LogPanel/>

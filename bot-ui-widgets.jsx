@@ -3202,6 +3202,16 @@ const ProfitBubble = ({sheet = false}) => {
     </>
   );
 
+  // The dashboard chip only earns its place once there's somewhere for
+  // money to go: no wallet address yet, no chip (Payments → Wallets is where
+  // one is added). The Payments sheet's own button always shows.
+  let hasWallet = demo;
+  try {
+    const ws = (typeof PAYMENTS_STORE !== 'undefined' && PAYMENTS_STORE.wallets) || {};
+    hasWallet = hasWallet || Object.values(ws).some(w => w && String(w.address || '').trim());
+  } catch (_) {}
+  if (!sheet && !hasWallet) return null;
+
   if (sheet) {
     return (
       <>

@@ -3565,6 +3565,11 @@ const ChatBubbleRowImpl = ({m, msg, sz=28, style={}, isGroupStart=true, isGroupE
     e.stopPropagation();
     const rq = m.rq;
     if (!rq || !msg) return;
+    // A direct chat's messages live in DM_STORE; its view does the jump.
+    if (msg.__direct) {
+      try { window.dispatchEvent(new CustomEvent('bc:dm-jump', { detail: { tid: msg.threadId, uid: rq.uid } })); } catch (_) {}
+      return;
+    }
     const t = (typeof MSGS_STORE !== 'undefined') ? MSGS_STORE.getThreadSync(msg.id) : [];
     const target = rq.uid ? t.find(r => r && r.uid === rq.uid) : null;
     if (!target) { bcToast('The original message isn’t in this chat’s history', 'info'); return; }
@@ -3702,7 +3707,7 @@ const ChatBubbleRowImpl = ({m, msg, sz=28, style={}, isGroupStart=true, isGroupE
             {m.ed && !m.del && !m._pending && (
               <span className="b-ed" title={m.oc ? 'Original: ' + String(m.oc).replace(MEDIA_LABEL_RE, '').trim() : 'Edited'}>edited</span>
             )}
-            {m.del ? <span>{isIn ? 'deleted by customer' : 'deleted'}</span> : null}
+            {m.del ? <span>{isIn && !(msg && msg.__direct) ? 'deleted by customer' : 'deleted'}</span> : null}
             {m.err ? <span className="b-err" title={m.err}>not delivered</span> : null}
           </div>
         ) : null}
@@ -5387,10 +5392,10 @@ const MessageCtxMenu = ({x, y, ay, row, conv, onClose, onReply, onEdit}) => {
 };
 
 // ── DIRECT-CHAT MESSAGE MENU ─────────────────────────────────────────
-// The same menu for a direct chat: copy, edit and delete your own messages
-// (within 48 hours, as elsewhere), open or save a file. Direct messages
-// have no replies and nothing to remove locally, so those rows aren't here.
-const DmMessageMenu = ({x, y, ay, tid, row, peerName, onClose, onEdit}) => {
+// The same menu for a direct chat: reply, copy, edit and delete your own
+// messages (within 48 hours, as elsewhere), open or save a file. There's
+// nothing to remove locally in a direct chat, so that row isn't here.
+const DmMessageMenu = ({x, y, ay, tid, row, peerName, onClose, onEdit, onReply}) => {
   const ref = React.useRef(null);
   const [confirm, setConfirm] = React.useState(false);
   const confirmRef = React.useRef(false); confirmRef.current = confirm;
@@ -5426,6 +5431,8 @@ const DmMessageMenu = ({x, y, ay, tid, row, peerName, onClose, onEdit}) => {
   }
   return (
     <div className="ctx" ref={ref} style={place} role="menu" aria-label="Message actions">
+      {onReply && <CtxRow icon="reply" label="Reply" disabled={!row.sid || !!row.locked || !!row.del}
+        onClick={() => { onReply(row); onClose(); }}/>}
       {mine && <CtxRow icon="edit" label="Edit" disabled={!canEdit} onClick={() => { onEdit(row); onClose(); }}/>}
       {text && !row.locked && !row.del && <CtxRow icon="copy" label="Copy text" onClick={() => { bcCopyText(text); onClose(); }}/>}
       {hasFile && <CtxRow icon="open" label={mediaKind === 'image' ? 'Open image' : 'Open file'}
@@ -10486,6 +10493,31 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
     if (el) el.setAttribute('data-ctx-target', '1');
     return () => { if (el) el.removeAttribute('data-ctx-target'); };
   }, [mctx]);
+  // A reply's quote was tapped: bring the original into view and outline
+  // it for a moment. Older history loads first if it isn't here yet.
+  React.useEffect(() => {
+    const h = async (e) => {
+      const d = (e && e.detail) || {};
+      if (Number(d.tid) !== Number(tid) || !d.uid) return;
+      const thNow = DM_STORE.threads.get(tid);
+      if (!thNow) return;
+      let tries = 0;
+      while (!thNow.byUid.get(d.uid) && thNow.hasMore && tries++ < 5) { try { await DM_STORE.loadOlder(tid); } catch (_) { break; } }
+      const i = thNow.msgs.findIndex(x => x && x.uid === d.uid);
+      if (i < 0) { bcToast('The original message isn’t in this chat’s history', 'info'); return; }
+      requestAnimationFrame(() => {
+        const root = threadRef.current;
+        const el = root && root.querySelector(`.brow[data-ti="${i}"]`);
+        if (!el) return;
+        pinnedRef.current = false;
+        try { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (_) { el.scrollIntoView(); }
+        el.setAttribute('data-ctx-target', '1');
+        setTimeout(() => el.removeAttribute('data-ctx-target'), 1400);
+      });
+    };
+    window.addEventListener('bc:dm-jump', h);
+    return () => window.removeEventListener('bc:dm-jump', h);
+  }, [tid]);
 
   // ── Editing your last message (↑ in an empty composer), as in every
   // other chat. Enter saves, Esc cancels; what you'd typed before comes back.
@@ -10508,8 +10540,22 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
     }
     return null;
   };
+  // ── Replying to a message (the message menu's Reply) ──
+  const [replyRow, setReplyRow] = React.useState(null);   // { tid, row }
+  const replyRef = React.useRef(null);
+  replyRef.current = replyRow && replyRow.tid === tid ? replyRow : null;
+  const startReply = (row) => {
+    if (!row) return;
+    if (editRef.current) { setEditRow(null); setComposer(preEditRef.current || ''); preEditRef.current = ''; }
+    setReplyRow({ tid, row });
+    setFocused(true);
+    requestAnimationFrame(() => { try { taRef.current && taRef.current.focus({ preventScroll: true }); } catch (_) {} });
+  };
+  const cancelReply = () => { if (replyRef.current) setReplyRow(null); };
+  React.useEffect(() => { setReplyRow(null); }, [tid]);
   const startEdit = (row) => {
     if (!row) return;
+    setReplyRow(null);
     if (!editRef.current) preEditRef.current = taRef.current ? taRef.current.value : '';
     setEditRow({ tid, row });
     setComposer(String(row.c || ''));
@@ -10586,13 +10632,18 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
     putAtts([]);
     pinnedRef.current = true;
     try { DM_STORE.typing(tid, 0); } catch (_) {}
+    // A reply rides the first message that goes out.
+    const reply = replyRef.current ? replyRef.current.row : null;
+    setReplyRow(null);
     // One file with a short line of text goes out as a captioned file, as
     // in every other chat; otherwise the text first, then each file.
     const asCaption = queued.length === 1 && !!text.trim() && text.length <= ATT_CAPTION_CAP;
     (async () => {
-      if (text.trim() && !asCaption) await DM_STORE.send(tid, text);
+      let rp = reply;
+      if (text.trim() && !asCaption) { await DM_STORE.send(tid, text, rp ? { reply: rp } : {}); rp = null; }
       for (let i = 0; i < queued.length; i++) {
-        await DM_STORE.sendFile(tid, queued[i], asCaption && i === 0 ? text : '');
+        await DM_STORE.sendFile(tid, queued[i], asCaption && i === 0 ? text : '', rp);
+        rp = null;
       }
     })();
   };
@@ -10644,7 +10695,7 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
 
   const wrapRef = React.useRef(null), inRef = React.useRef(null);
   useComposerHeight(wrapRef, inRef);
-  const composerActive = hover || focused || hasText || hasAiDraft || atts.length > 0 || attBusy || dragOver || !!(editRow && editRow.tid === tid) || bcNoHover();
+  const composerActive = hover || focused || hasText || hasAiDraft || atts.length > 0 || attBusy || dragOver || !!(editRow && editRow.tid === tid) || !!(replyRow && replyRow.tid === tid) || bcNoHover();
   const keyState = DM_KEYS.state;
 
   if (!th) {
@@ -10999,6 +11050,20 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
                 </div>
               );
             })()}
+            {replyRow && replyRow.tid === tid && !(editRow && editRow.tid === tid) && (
+              <div className="bc-cbar">
+                <span className="bc-cbar-ico" aria-hidden="true">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/></svg>
+                </span>
+                <div className="bc-cbar-body">
+                  <div className="bc-cbar-title">Replying to {replyRow.row.r === 'in' ? first : replyRow.row.r === 'bot' ? 'your agent' : 'yourself'}</div>
+                  <div className="bc-cbar-txt">{quoteText({ c: replyRow.row.c, mt: replyRow.row.mt })}</div>
+                </div>
+                <button type="button" className="bc-cbar-x" onClick={cancelReply} title="Cancel reply (Esc)" aria-label="Cancel reply">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+              </div>
+            )}
             {editRow && editRow.tid === tid && (
               <div className="bc-cbar">
                 <span className="bc-cbar-ico" aria-hidden="true">
@@ -11057,7 +11122,7 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
                     addFiles(cd.files);
                   }
                 }}
-                placeholder={!canSend ? blocker : (editRow && editRow.tid === tid) ? 'Edit your message…' : hasAiDraft ? 'Or write your own reply…' : `Message ${first}…`}
+                placeholder={!canSend ? blocker : (editRow && editRow.tid === tid) ? 'Edit your message…' : (replyRow && replyRow.tid === tid) ? `Reply to ${replyRow.row.r === 'in' ? first : 'yourself'}…` : hasAiDraft ? 'Or write your own reply…' : `Message ${first}…`}
                 className="bc-input" style={{opacity: canSend ? 1 : 0.6}}
                 onChange={e => {
                   const ta = e.currentTarget;
@@ -11076,6 +11141,7 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
                 onKeyDown={e => {
                   // Esc leaves edit mode (and nothing else).
                   if (e.key === 'Escape' && editRef.current) { e.preventDefault(); e.stopPropagation(); cancelEdit(); return; }
+                  if (e.key === 'Escape' && replyRef.current) { e.preventDefault(); e.stopPropagation(); cancelReply(); return; }
                   // ↑ in an empty composer edits your last message.
                   if (e.key === 'ArrowUp' && !editRef.current && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey
                       && !e.nativeEvent.isComposing && !e.currentTarget.value.trim()) {
@@ -11112,7 +11178,7 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
       {mctx && (
         <TopLayer>
           <DmMessageMenu x={mctx.x} y={mctx.y} ay={mctx.ay} tid={tid} row={mctx.row} peerName={first}
-            onClose={closeMctx} onEdit={startEdit}/>
+            onClose={closeMctx} onEdit={startEdit} onReply={startReply}/>
         </TopLayer>
       )}
       {pop === 'access' && <DmAccessPopup onClose={() => setPop(null)}/>}

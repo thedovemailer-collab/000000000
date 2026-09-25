@@ -59,6 +59,10 @@ const API_TIMEOUTS = {
   // the operator staring at a frozen "Sending…" chip with no recovery.
   // 75s = 60s server-side cap + 15s for retries / network jitter.
   ghost_command:   75000,
+  // A bot reply the server writes in this request (no background worker
+  // running), and a file sent to Telegram / Discord through the server.
+  bot_relay_tick: 180000,
+  bot_relay_send: 180000,
 };
 const API_TIMEOUT_DEFAULT = 30000;
 

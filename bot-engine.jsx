@@ -9870,8 +9870,10 @@ function ghostActionHandler(act) {
           return;
         }
         try {
-          if (window.BotBridge && typeof window.BotBridge.isWebView2 === 'function' && !window.BotBridge.isWebView2()) {
-            const reason = 'Not running inside the desktop app — message not sent. Open BotCommand.exe to relay.';
+          // Without the desktop app, a bot the server runs can still send (BC_RELAY).
+          if (window.BotBridge && typeof window.BotBridge.isWebView2 === 'function' && !window.BotBridge.isWebView2()
+              && !(typeof BC_RELAY !== 'undefined' && BC_RELAY.canSend(platform))) {
+            const reason = 'Not running inside the desktop app, and this bot isn’t connected to the server — message not sent.';
             console.warn('[ghost-message_send]', reason, { platform, chatId });
             announce('message_send', { ...a, conv_id: msgConv.id, resolved: false, reason, report: reason });
             return;

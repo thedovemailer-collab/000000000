@@ -1748,6 +1748,18 @@ button.sset-pill[data-state="ok"]:hover { background: rgba(67,201,138,0.14); bor
   padding: 0;
 }
 .sset-finput-input::placeholder { color: var(--t4); }
+/* Greyed out: needs the desktop app (a personal Telegram account in a browser). */
+.sset-finput[data-off="1"] { opacity: .42; background: transparent; border-style: dashed; }
+.sset-finput[data-off="1"] .sset-finput-input { cursor: not-allowed; }
+.sset-finput[data-off="1"] .sset-finput-act { pointer-events: none; }
+.sset-form-row-ctl[data-off="1"] { opacity: .42; pointer-events: none; }
+.sset-form-row-ctl[data-off="1"] * { cursor: not-allowed; }
+.sset-desk-note { color: var(--t2); font-weight: 500; }
+.sset-desk-note::before {
+  content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--warn, #e8a844); opacity: .8; margin-right: 6px; vertical-align: 1px;
+}
+.sset-runs-where { margin-top: 8px; opacity: .85; }
 .sset-finput-act {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; flex-shrink: 0;

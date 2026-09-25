@@ -4649,6 +4649,8 @@ function dm_offline_tick(PDO $pdo, int $max = 1): int {
     try { $ran += dm_shop_watch_tick($pdo, 2 * $max); } catch (Throwable $e) { error_log('[dm-shop] watch tick failed'); }
     try { $ran += dm_shop_outbox_server_flush($pdo, $max); } catch (Throwable $e) { error_log('[dm-shop] outbox flush failed'); }
     $ran += dm_shop_outbox_sweep_after($pdo, 2 * $max);
+    // Telegram / Discord bots the server answers (see BOT RELAY).
+    try { $ran += bot_job_tick($pdo, $max); } catch (Throwable $e) { error_log('[bot-relay] job tick failed: ' . get_class($e)); }
     return $ran;
 }
 // Replies and deliveries can hold one database connection across long AI
@@ -4943,15 +4945,23 @@ function dm_worker_next(PDO $pdo): ?int {
         $q = $pdo->query("SELECT TIMESTAMPDIFF(SECOND, NOW(), MIN(next_at)) FROM bc_dm_pay_watch WHERE created_at > NOW() - INTERVAL 24 HOUR");
         if ($q) $take($q->fetchColumn());
     } catch (Throwable $e) {}
+    // Bots the server receives for (kept polling while no desktop app is),
+    // their reply jobs and anything still to send.
+    $take(bot_relay_next($pdo));
     return $best;
 }
 // Seconds until the next offline reply job can run, or null when none.
 function dm_worker_job_next(PDO $pdo): ?int {
-    try {
-        $q = $pdo->query("SELECT TIMESTAMPDIFF(SECOND, NOW(), MIN(GREATEST(due_at, COALESCE(claimed_at + INTERVAL 3 MINUTE, due_at)))) FROM bc_dm_ai_jobs");
-        $v = $q ? $q->fetchColumn() : null;
-        return ($v === null || $v === false) ? null : max(0, (int)$v);
-    } catch (Throwable $e) { return null; }
+    $best = null;
+    foreach (["SELECT TIMESTAMPDIFF(SECOND, NOW(), MIN(GREATEST(due_at, COALESCE(claimed_at + INTERVAL 3 MINUTE, due_at)))) FROM bc_dm_ai_jobs",
+              "SELECT TIMESTAMPDIFF(SECOND, NOW(), MIN(GREATEST(due_at, COALESCE(claimed_at + INTERVAL 3 MINUTE, due_at)))) FROM bc_bot_jobs"] as $sql) {
+        try {
+            $q = $pdo->query($sql);
+            $v = $q ? $q->fetchColumn() : null;
+            if ($v !== null && $v !== false) $best = $best === null ? max(0, (int)$v) : min($best, max(0, (int)$v));
+        } catch (Throwable $e) {}
+    }
+    return $best;
 }
 function dm_worker_run(PDO $pdo, int $budget = 200): int {
     $got = false;
@@ -4975,6 +4985,8 @@ function dm_worker_run(PDO $pdo, int $budget = 200): int {
         while (true) {
             if (time() >= $end) { $more = dm_worker_next($pdo) !== null; break; }
             $n = dm_offline_tick($pdo, 1);
+            // Bots: receive (Telegram polls, the Discord gateway) and send.
+            try { $n += bot_relay_pump($pdo, 0, true); } catch (Throwable $e) { error_log('[bot-relay] pump: ' . get_class($e)); }
             @set_time_limit($budget + 400);
             $ran += $n;
             if ($n > 0) continue;
@@ -4988,12 +5000,15 @@ function dm_worker_run(PDO $pdo, int $budget = 200): int {
                 $job = dm_worker_job_next($pdo);
                 if ($job === null || $job > 3700) { $more = false; break; }
             }
-            sleep(max(1, min(5, $next)));
+            // The wait doubles as the bots' listening time (a message on the
+            // Discord gateway wakes it early).
+            try { bot_relay_pump($pdo, max(1, min(5, $next)), true); } catch (Throwable $e) { sleep(max(1, min(5, $next))); }
         }
     } catch (Throwable $e) {
         error_log('[dm-worker] ' . get_class($e) . ' @' . $e->getLine());
         $more = true;
     } finally {
+        bot_relay_release($pdo);
         try { $pdo->query("SELECT RELEASE_LOCK('bcdm_worker')"); } catch (Throwable $e) {}
         $finished = true;
     }
@@ -5408,6 +5423,12 @@ function dm_shop_parse_conv(string $convId): ?array {
     return preg_match('/^dm_(\d+)_(\d+)$/', $convId, $m) ? ['tid' => (int)$m[1], 'owner' => (int)$m[2]] : null;
 }
 function dm_shop_is_conv(string $convId): bool { return strpos($convId, 'dm_') === 0; }
+// Invoices the server mints, watches and delivers: every direct chat's, and
+// those its agent issued on a Telegram / Discord bot chat it answered itself
+// (srv=1, see BOT RELAY). The app's copy of the list never overrides them.
+function shop_srv_inv($r): bool {
+    return is_array($r) && (dm_shop_is_conv((string)($r['conv_id'] ?? '')) || !empty($r['srv']));
+}
 
 // The conversation + end-user rows for one direct chat, kept in step with
 // the agent that covers it. Returns the conversation id.
@@ -5715,7 +5736,7 @@ function dm_shop_merge_browser_list(PDO $pdo, int $acc, array $incoming): array 
     if ($tomb) $incoming = array_values(array_filter($incoming, fn($r) => !is_array($r) || !isset($tomb[(string)($r['id'] ?? '')])));
     $db = dm_shop_invoices($pdo, $acc);
     $dbDm = [];
-    foreach ($db as $r) if (is_array($r) && dm_shop_is_conv((string)($r['conv_id'] ?? '')) && !isset($tomb[(string)($r['id'] ?? '')])) $dbDm[(string)($r['id'] ?? '')] = $r;
+    foreach ($db as $r) if (shop_srv_inv($r) && !isset($tomb[(string)($r['id'] ?? '')])) $dbDm[(string)($r['id'] ?? '')] = $r;
     if (!$dbDm) return $incoming;
     $out = []; $seen = []; $confirmed = [];
     foreach ($incoming as $r) {
@@ -6168,7 +6189,9 @@ function dm_shop_reuse_invoice(PDO $pdo, int $acc, array $inv, string $coin, ?fl
 // feed and the invoice page name the direct-chat customer.
 function dm_shop_customer_fields(PDO $pdo, int $acc, string $convId): array {
     $pc = dm_shop_parse_conv($convId);
-    $out = ['platform' => 'direct'];
+    $bc = bot_conv_parse($convId);
+    // A bot chat's invoice is the server's (srv) and names its platform.
+    $out = $bc ? ['platform' => $bc['platform'], 'srv' => 1] : ['platform' => 'direct'];
     if ($pc) $out['thread_id'] = $pc['tid'];
     try {
         $q = $pdo->prepare("SELECT name, handle FROM bc_end_users WHERE account_id=? AND conv_id=? LIMIT 1");
@@ -6341,7 +6364,7 @@ function dm_shop_process_invoices(PDO $pdo, int $acc, string $convId, array $age
                 'min_confirmations' => max(1, (int)($wallet['min_confirmations'] ?? 1)),
                 'minimum_coin' => $minted['minimum'], 'price_source' => $src,
                 'amount_coin_quoted' => $coinAmt, 'rate_used' => $rate, 'rate_at' => $rate ? time() : null,
-                'rate_source' => $rate ? 'live' : 'none', 'origin' => 'direct', 'dm_order_key' => $pidKey,
+                'rate_source' => $rate ? 'live' : 'none', 'origin' => bot_conv_parse($convId) ? 'relay' : 'direct', 'dm_order_key' => $pidKey,
             ] + dm_shop_customer_fields($pdo, $acc, $convId);
             if ($storedItems) { $inv['items'] = $storedItems; if ($catAmt !== null) $inv['catalog_price_at_creation'] = dm_shop_fmt_fiat($catAmt); }
             $renewId = trim((string)($a['renew'] ?? $a['renew_license_id'] ?? ''));
@@ -8418,11 +8441,52 @@ function dm_shop_reply_locked(PDO $pdo, int $owner, array $t, array $agent, arra
         $gate = dm_shop_gate($pdo, $owner, $tid, $agent);
         if ($gate) return $gate;
     }
+    return shop_reply_core($pdo, $owner, $convId, $agent, $opts, [
+        'live_facts' => fn() => dm_shop_live_facts($pdo, $owner, $convId, $tid),
+        'spam_hits'  => fn() => dm_spam_state($pdo, $owner, $tid)['hits'],
+        'spam_hit'   => fn(string $why) => dm_spam_hit($pdo, $owner, $tid, $agent, $why),
+        'spam_clear' => function () use ($pdo, $owner, $tid) { dm_spam_clear($pdo, $owner, $tid); },
+        'post_sale_stop' => function () use ($pdo, $owner, $tid, $convId) {
+            // The agent stops after the sale — but only once the sale has
+            // been delivered. While anything is still owed, it stays on;
+            // the delivery's last message takes it off (see
+            // dm_shop_outbox_after), exactly as in every other chat.
+            if (!dm_shop_delivery_owed($pdo, $owner, $tid, $convId, false)['owed']) {
+                dm_shop_stand_down($pdo, $owner, $tid, 'stopped after the sale');
+            } else {
+                // Staying on until the order has gone out: undo the switch-off
+                // ai_reply made on its way out.
+                try { $pdo->prepare("UPDATE bc_conversations SET auto_reply=1 WHERE id=? AND account_id=? AND auto_reply=0")->execute([$convId, $owner]); } catch (Throwable $e) {}
+            }
+        },
+        'escalated_now' => function () use ($pdo, $owner, $tid) {
+            if ((dm_shop_hold($pdo, $owner, $tid)['kind'] ?? '') !== 'escalated') return false;
+            dm_shop_bump_rev($pdo, $owner);
+            return true;
+        },
+        'newer_in' => function (int $lastIn) use ($pdo, $owner, $tid) {
+            $nq = $pdo->prepare("SELECT 1 FROM bc_dm_messages WHERE thread_id=? AND sender_id<>? AND id>? LIMIT 1");
+            $nq->execute([$tid, $owner, $lastIn]);
+            return (bool)$nq->fetchColumn();
+        },
+        'stand_down' => function () use ($pdo, $owner, $tid, $convId) {
+            if (!dm_shop_delivery_owed($pdo, $owner, $tid, $convId, false)['owed']) dm_shop_stand_down($pdo, $owner, $tid, 'stopped after the sale');
+        },
+    ]);
+}
+// ── ONE REPLY, ANY CHAT ───────────────────────────────────────
+// What dm_shop_reply_locked does once the chat's own checks have passed:
+// the agent's reply with every check the app runs on a reply (spam, the
+// repetition guard, "does it answer them?", invoices, finishing, splitting
+// into messages). Direct chats and the server-run Telegram / Discord bots
+// (see BOT RELAY) both come through here; $hk holds what differs between
+// them (where spam state lives, standing down, a newer message check).
+function shop_reply_core(PDO $pdo, int $owner, string $convId, array $agent, array $opts, array $hk): array {
     $sysx = trim(dm_shop_system_extra($pdo, $owner, $convId, $agent, (string)($opts['system_extra'] ?? ''))
-        . "\n\n" . dm_shop_live_facts($pdo, $owner, $convId, $tid));
+        . "\n\n" . $hk['live_facts']());
     // Flagged as spam before: the agent is told, so it's slower to flag
     // again but knows the history (SPAM_HISTORY in the app's state block).
-    $spamHits = dm_spam_state($pdo, $owner, $tid)['hits'];
+    $spamHits = (int)$hk['spam_hits']();
     if ($spamHits > 0) $sysx .= "\n\nSPAM_HISTORY: this conversation has been flagged as spam {$spamHits}x recently. Be careful — only set thinking.spam_signal=true again if the latest message is OBVIOUSLY spam (not just confused or grumpy). Real customers sometimes type weird things.";
     $body = [
         'conv_id' => $convId,
@@ -8440,23 +8504,15 @@ function dm_shop_reply_locked(PDO $pdo, int $owner, array $t, array $agent, arra
     if (!empty($res['error'])) {
         $e = (string)$res['error'];
         if (!empty($res['post_sale_stop'])) {
-            // The agent stops after the sale — but only once the sale has
-            // been delivered. While anything is still owed, it stays on;
-            // the delivery's last message takes it off (see
-            // dm_shop_outbox_after), exactly as in every other chat.
-            if (!dm_shop_delivery_owed($pdo, $owner, $tid, $convId, false)['owed']) {
-                dm_shop_stand_down($pdo, $owner, $tid, 'stopped after the sale');
-            } else {
-                // Staying on until the order has gone out: undo the switch-off
-                // ai_reply made on its way out.
-                try { $pdo->prepare("UPDATE bc_conversations SET auto_reply=1 WHERE id=? AND account_id=? AND auto_reply=0")->execute([$convId, $owner]); } catch (Throwable $e) {}
-            }
+            $hk['post_sale_stop']();
             return ['parts' => [], 'skip' => 'post_sale_stop'];
         }
         if (stripos($e, 'escalated to human') !== false) return ['parts' => [], 'skip' => 'escalated'];
         if (stripos($e, 'muted') !== false || stripos($e, 'blocked') !== false) return ['parts' => [], 'skip' => 'muted'];
         if (stripos($e, 'auto_reply disabled') !== false) return ['parts' => [], 'skip' => 'paused'];
         if (stripos($e, 'private chats') !== false) return ['parts' => [], 'skip' => 'private_off', 'error' => 'This agent is set not to reply in private chats.'];
+        // Group / channel policy (Telegram and Discord bots): left on purpose.
+        if (stripos($e, 'not mentioned') !== false || stripos($e, 'does not reply in') !== false) return ['parts' => [], 'skip' => 'policy'];
         if (stripos($e, 'no LLM API key') !== false) return ['parts' => [], 'error' => 'No AI key is set up. Add one in Settings → AI.', 'code' => 'no_key'];
         $code = preg_match('/HTTP (\d{3})/', $e, $mm) ? (int)$mm[1] : 0;
         return ['parts' => [], 'error' => $code ? "The AI provider returned an error ($code)." : 'The agent couldn’t write a reply.', 'code' => 'llm_failed'];
@@ -8465,17 +8521,13 @@ function dm_shop_reply_locked(PDO $pdo, int $owner, array $t, array $agent, arra
     // open app is told now, so the chat moves to Escalated at once — the
     // reply may have been written by the server with nobody looking.
     $escalatedNow = false;
-    try { if ((dm_shop_hold($pdo, $owner, $tid)['kind'] ?? '') === 'escalated') { $escalatedNow = true; dm_shop_bump_rev($pdo, $owner); } } catch (Throwable $e) {}
+    try { $escalatedNow = (bool)$hk['escalated_now'](); } catch (Throwable $e) {}
     // They wrote again while this was being written: it answers a
     // conversation that has moved on, so it's thrown away and written again
     // with that message in view (the caller allows three in a row, then the
     // reply goes out anyway), as in every other chat.
     if (!empty($opts['reconsider']) && !empty($opts['last_in']) && empty($opts['kickoff'])) {
-        try {
-            $nq = $pdo->prepare("SELECT 1 FROM bc_dm_messages WHERE thread_id=? AND sender_id<>? AND id>? LIMIT 1");
-            $nq->execute([$tid, $owner, (int)$opts['last_in']]);
-            if ($nq->fetchColumn()) return ['parts' => [], 'skip' => 'reconsider'];
-        } catch (Throwable $e) {}
+        try { if ($hk['newer_in']((int)$opts['last_in'])) return ['parts' => [], 'skip' => 'reconsider']; } catch (Throwable $e) {}
     }
     $thinking = is_array($res['thinking'] ?? null) ? $res['thinking'] : [];
     $reply = (string)($res['reply'] ?? '');
@@ -8496,10 +8548,10 @@ function dm_shop_reply_locked(PDO $pdo, int $owner, array $t, array $agent, arra
     // else is a clean message, which ends a cooldown — as in every other chat.
     if (empty($opts['kickoff'])) {
         if ((int)($agent['spam_throttle'] ?? 1) === 1 && ($thinking['spam_signal'] ?? null) === true) {
-            $left = dm_spam_hit($pdo, $owner, $tid, $agent, (string)($thinking['spam_reason'] ?? ''));
+            $left = (int)$hk['spam_hit']((string)($thinking['spam_reason'] ?? ''));
             return ['parts' => [], 'skip' => 'spam', 'left' => $left];
         }
-        dm_spam_clear($pdo, $owner, $tid);
+        $hk['spam_clear']();
     }
     if (($thinking['should_reply'] ?? null) === false && !$attachments && empty($opts['kickoff'])) {
         return ['parts' => [], 'skip' => 'no reply needed'];
@@ -8651,8 +8703,7 @@ function dm_shop_reply_locked(PDO $pdo, int $owner, array $t, array $agent, arra
         $wrap = dm_shop_manual_line($pdo, $owner, $convId, (array)($st['tasks'] ?? []), !empty($st['stop_after']), $lang);
         if ($wrap !== '') $parts[] = $wrap;
         bc_internal(function () use ($pdo, $owner, $convId) { bc_act_onboarding($pdo, $owner, ['conv_id' => $convId, 'op' => 'finish', 'status' => 'complete']); });
-        if ((!empty($st['stop_after']) || (int)($agent['stop_after_sale'] ?? 0) === 1)
-            && !dm_shop_delivery_owed($pdo, $owner, $tid, $convId, false)['owed']) dm_shop_stand_down($pdo, $owner, $tid, 'stopped after the sale');
+        if (!empty($st['stop_after']) || (int)($agent['stop_after_sale'] ?? 0) === 1) $hk['stand_down']();
     }
     return ['parts' => $parts, 'skip' => $parts ? '' : 'empty', 'invoices' => $inv['rows'], 'agent' => $agent,
             'reply_lang' => $lang];
@@ -8849,6 +8900,8 @@ function dm_shop_watch_tick(PDO $pdo, int $max = 3): int {
 // Stop After Sale. Idempotent: replays only send what didn't go out.
 function dm_shop_fulfil(PDO $pdo, int $acc, array $inv): void {
     $convId = (string)($inv['conv_id'] ?? '');
+    // A bot chat the server answers (see BOT RELAY): delivered there.
+    if (!empty($inv['srv']) && bot_conv_parse($convId)) { bot_fulfil($pdo, $acc, $inv); return; }
     $pc = dm_shop_parse_conv($convId);
     if (!$pc || $pc['owner'] !== $acc) return;
     // The same one-writer-per-chat lock replies take (see dm_shop_reply):
@@ -8873,6 +8926,21 @@ function dm_shop_fulfil_locked(PDO $pdo, int $acc, array $inv, array $pc): void 
     $ob = $pdo->prepare("SELECT 1 FROM bc_dm_outbox WHERE owner_id=? AND inv=? AND failed=0 AND kind<>'reply' LIMIT 1");
     $ob->execute([$acc, $id]);
     if ($ob->fetchColumn()) return;
+    $tid = (int)$t['id'];
+    shop_fulfil_core($pdo, $acc, $inv, $convId,
+        fn() => dm_shop_agent($pdo, $acc, $tid),
+        function (array $texts, array $flags) use ($pdo, $acc, $tid) {
+            $flags['tid'] = $tid;
+            dm_shop_outbox_add($pdo, $acc, $tid, array_map(fn($x) => $x['t'], $texts), $flags);
+        });
+}
+// The delivery of a confirmed payment, for any chat the server delivers on
+// (direct chats, and Telegram / Discord bots it runs — see BOT RELAY).
+// $agentOf: the agent covering the chat now, or null. $emit(texts, flags):
+// sends [['t' => text, 'kind' => confirm|delivery|manual], …] in order and
+// applies the flags once they have gone out.
+function shop_fulfil_core(PDO $pdo, int $acc, array $inv, string $convId, callable $agentOf, callable $emit): void {
+    $id = (string)$inv['id'];
     // One run at a time per invoice (a second tick or browser can't overlap).
     $claimed = false;
     dm_shop_inv_mutate($pdo, $acc, function (array &$list) use ($id, &$claimed, &$inv) {
@@ -8893,7 +8961,7 @@ function dm_shop_fulfil_locked(PDO $pdo, int $acc, array $inv, array $pc): void 
         unset($r);
     });
     if (!$claimed) return;
-    $agentRow = dm_shop_agent($pdo, $acc, (int)$t['id']);
+    $agentRow = $agentOf();
     $agent = $agentRow ?: (dm_ai_agent($pdo, $acc, (int)($inv['agent_id'] ?? 0)) ?: []);
     $covered = (bool)$agentRow;
     $lang = '';
@@ -9009,12 +9077,1355 @@ function dm_shop_fulfil_locked(PDO $pdo, int $acc, array $inv, array $pc): void 
     }
     $flags = ['tx_ids' => $txIds, 'invoice_id' => $id, 'delivered' => true,
               'confirm_msg' => (bool)array_filter($texts, fn($x) => $x['kind'] === 'confirm'),
-              'manual' => $manual !== '' || $kickoff, 'stand_down' => $stopAfter, 'kickoff' => $kickoff, 'tid' => (int)$t['id']];
+              'manual' => $manual !== '' || $kickoff, 'stand_down' => $stopAfter, 'kickoff' => $kickoff];
     if ($kickoff) {
         dm_shop_inv_mutate($pdo, $acc, function (array &$list) use ($id) { foreach ($list as &$r) if (is_array($r) && (string)($r['id'] ?? '') === $id) $r['onboarding_started'] = true; unset($r); });
     }
-    dm_shop_outbox_add($pdo, $acc, (int)$t['id'], array_map(fn($x) => $x['t'], $texts), $flags);
+    $emit($texts, $flags);
     dm_shop_bump_rev($pdo, $acc);
+}
+
+// ══ BOT RELAY ══════════════════════════════════════════════════
+// Telegram bots (BotFather tokens) and Discord bots answered by the
+// server, with no desktop app running — the way direct chats are answered
+// while you're away.
+//
+// What the desktop app (Form1 / WebView2) does with its libraries, the
+// server does over the platforms' own web APIs:
+//   • Telegram: getUpdates (the Bot API), sendMessage, sendChatAction, …
+//   • Discord: the Gateway (a WebSocket, for new messages — including a
+//     stranger's very first DM) and the REST API (sending, catching up).
+// A personal Telegram account (the "My account" / MTProto login) can't be
+// done this way: it needs the desktop app.
+//
+// WHO RECEIVES. A bot's messages can only be taken by one receiver at a
+// time (Telegram answers a second getUpdates with 409 Conflict). The
+// desktop app, while it is open and connected, says so every ~30s
+// (bot_host_ping); the server only polls a bot whose desktop app has been
+// quiet for BOT_HOST_AFTER seconds, and steps back as soon as it returns.
+// Sending never conflicts, so a reply the server started always finishes.
+//
+// Messages land in the same conversations (telegram_<chat> /
+// discord_<channel>) and rows (uid tg:<chat>:<id> / dc:<channel>:<id>) the
+// desktop app uses, so either side sees one history. The reply is written
+// by shop_reply_core — the same agent, checks, invoices and finishing as a
+// direct chat — and sent through bc_bot_outbox, which, like the direct
+// chats' outbox, keeps a reply or a delivery until every part has gone out.
+if (!defined('BOT_HOST_AFTER')) define('BOT_HOST_AFTER', 90);
+if (!defined('BOT_RELAY_MAX_TRIES')) define('BOT_RELAY_MAX_TRIES', 60);
+// The platforms' addresses (overridable only for a local test setup).
+if (!defined('BC_TG_API'))     define('BC_TG_API', getenv('BC_TG_API') ?: 'https://api.telegram.org');
+if (!defined('BC_DC_API'))     define('BC_DC_API', getenv('BC_DC_API') ?: 'https://discord.com/api/v10');
+if (!defined('BC_DC_GATEWAY')) define('BC_DC_GATEWAY', getenv('BC_DC_GATEWAY') ?: 'wss://gateway.discord.gg');
+
+function bot_relay_schema(PDO $pdo): void {
+    static $done = false;
+    if ($done) return;
+    $done = true;
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS bc_bot_relay (
+            account_id  INT          NOT NULL,
+            platform    VARCHAR(12)  NOT NULL,
+            on_flag     TINYINT(1)   NOT NULL DEFAULT 0,
+            bot_id      VARCHAR(40)  NOT NULL DEFAULT '',
+            bot_name    VARCHAR(120) NOT NULL DEFAULT '',
+            username    VARCHAR(120) NOT NULL DEFAULT '',
+            tok_hash    CHAR(16)     NOT NULL DEFAULT '',
+            tg_offset   BIGINT       NOT NULL DEFAULT 0,
+            dc_state    TEXT         NULL,
+            host_at     DATETIME     NULL DEFAULT NULL,
+            polled_at   DATETIME     NULL DEFAULT NULL,
+            next_at     DATETIME     NULL DEFAULT NULL,
+            fails       INT          NOT NULL DEFAULT 0,
+            last_error  VARCHAR(255) NULL DEFAULT NULL,
+            error_at    DATETIME     NULL DEFAULT NULL,
+            updated_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (account_id, platform)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS bc_bot_jobs (
+            account_id  INT          NOT NULL,
+            conv_id     VARCHAR(120) NOT NULL,
+            due_at      DATETIME     NOT NULL,
+            claimed_at  DATETIME     NULL DEFAULT NULL,
+            tries       INT          NOT NULL DEFAULT 0,
+            recons      INT          NOT NULL DEFAULT 0,
+            PRIMARY KEY (account_id, conv_id),
+            INDEX idx_due (due_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS bc_bot_conv (
+            account_id  INT          NOT NULL,
+            conv_id     VARCHAR(120) NOT NULL,
+            spam_hits   INT          NOT NULL DEFAULT 0,
+            spam_until  DATETIME     NULL DEFAULT NULL,
+            spam_reason VARCHAR(200) NULL DEFAULT NULL,
+            answered_in BIGINT       NOT NULL DEFAULT 0,
+            dc_last     VARCHAR(30)  NOT NULL DEFAULT '',
+            PRIMARY KEY (account_id, conv_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        $pdo->exec("CREATE TABLE IF NOT EXISTS bc_bot_outbox (
+            id          BIGINT       AUTO_INCREMENT PRIMARY KEY,
+            account_id  INT          NOT NULL,
+            conv_id     VARCHAR(120) NOT NULL,
+            grp         CHAR(12)     NOT NULL DEFAULT '',
+            kind        VARCHAR(12)  NOT NULL DEFAULT '',
+            body        MEDIUMTEXT   NOT NULL,
+            done        TEXT         NULL,
+            tries       INT          NOT NULL DEFAULT 0,
+            next_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            sent_at     DATETIME     NULL DEFAULT NULL,
+            failed      TINYINT(1)   NOT NULL DEFAULT 0,
+            created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_acc_conv (account_id, conv_id, sent_at),
+            INDEX idx_next (sent_at, failed, next_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (Throwable $e) { error_log('[bot-relay] schema: ' . $e->getMessage()); }
+}
+
+// 'telegram_123' → ['platform' => 'telegram', 'chat' => '123'] (bots only).
+function bot_conv_parse(string $convId): ?array {
+    if (!preg_match('/^(telegram|discord)_(-?\d{1,24})$/', $convId, $m)) return null;
+    return ['platform' => $m[1], 'chat' => $m[2]];
+}
+function bot_token(PDO $pdo, int $acc, string $platform): string {
+    try {
+        $q = $pdo->prepare("SELECT value FROM bc_credentials WHERE account_id=? AND `key`=? LIMIT 1");
+        $q->execute([$acc, $platform === 'discord' ? 'dc_bot_token' : 'tg_bot_token']);
+        return trim((string)($q->fetchColumn() ?: ''));
+    } catch (Throwable $e) { return ''; }
+}
+function bot_tok_hash(string $token): string { return $token === '' ? '' : substr(hash('sha256', 'bc-bot|' . $token), 0, 16); }
+function bot_relay_row(PDO $pdo, int $acc, string $platform): ?array {
+    bot_relay_schema($pdo);
+    try {
+        $q = $pdo->prepare("SELECT *, (host_at IS NOT NULL AND host_at > NOW() - INTERVAL " . (int)BOT_HOST_AFTER . " SECOND) AS host_live,
+                                   TIMESTAMPDIFF(SECOND, polled_at, NOW()) AS polled_ago
+                              FROM bc_bot_relay WHERE account_id=? AND platform=?");
+        $q->execute([$acc, $platform]);
+        return $q->fetch() ?: null;
+    } catch (Throwable $e) { return null; }
+}
+function bot_relay_error(PDO $pdo, int $acc, string $platform, ?string $why, int $backoff = 0): void {
+    try {
+        if ($why === null) {
+            $pdo->prepare("UPDATE bc_bot_relay SET last_error=NULL, error_at=NULL, fails=0 WHERE account_id=? AND platform=? AND (last_error IS NOT NULL OR fails<>0)")
+                ->execute([$acc, $platform]);
+            return;
+        }
+        $pdo->prepare("UPDATE bc_bot_relay SET last_error=?, error_at=NOW(), fails=fails+1, next_at=NOW() + INTERVAL ? SECOND WHERE account_id=? AND platform=?")
+            ->execute([mb_substr($why, 0, 250), max(0, $backoff), $acc, $platform]);
+    } catch (Throwable $e) {}
+}
+
+// ── HTTP ──────────────────────────────────────────────────────
+// $body: array → JSON; ['__multipart' => fields] → multipart form.
+function bot_http(string $method, string $url, $body = null, array $headers = [], int $timeout = 20, ?string $pin = null): array {
+    if (!function_exists('curl_init')) return ['code' => 0, 'json' => null, 'raw' => '', 'error' => 'curl is not available on this server', 'headers' => []];
+    $ch = curl_init($url);
+    $hdrs = [];
+    $opt = [
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CONNECTTIMEOUT => min(10, $timeout),
+        CURLOPT_TIMEOUT => $timeout,
+        CURLOPT_NOSIGNAL => 1,
+        CURLOPT_USERAGENT => 'DiscordBot (https://botcommand.app, 1.0) BotCommand-relay',
+        CURLOPT_HEADERFUNCTION => function ($ch, $line) use (&$hdrs) {
+            $p = strpos($line, ':');
+            if ($p !== false) $hdrs[strtolower(trim(substr($line, 0, $p)))] = trim(substr($line, $p + 1));
+            return strlen($line);
+        },
+    ];
+    if (is_array($body) && isset($body['__multipart'])) {
+        $opt[CURLOPT_POSTFIELDS] = $body['__multipart'];
+    } elseif ($body !== null) {
+        $opt[CURLOPT_POSTFIELDS] = is_string($body) ? $body : json_encode($body);
+        $headers[] = 'Content-Type: application/json';
+    }
+    $opt[CURLOPT_HTTPHEADER] = $headers;
+    if ($pin !== null && defined('CURLOPT_RESOLVE')) $opt[CURLOPT_RESOLVE] = [$pin];
+    if (defined('CURLOPT_PROTOCOLS')) $opt[CURLOPT_PROTOCOLS] = CURLPROTO_HTTP | CURLPROTO_HTTPS;
+    curl_setopt_array($ch, $opt);
+    $raw = curl_exec($ch);
+    $err = $raw === false ? curl_error($ch) : '';
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    $j = is_string($raw) && $raw !== '' ? json_decode($raw, true) : null;
+    return ['code' => $code, 'json' => is_array($j) ? $j : null, 'raw' => is_string($raw) ? $raw : '', 'error' => $err, 'headers' => $hdrs];
+}
+// Telegram Bot API call. ['ok' => bool, 'result' => …, 'error' => text,
+// 'code' => HTTP status, 'retry_after' => seconds].
+function tg_api(string $token, string $method, array $params = [], int $timeout = 20, bool $multipart = false): array {
+    $r = bot_http('POST', BC_TG_API . '/bot' . $token . '/' . $method,
+                  $multipart ? ['__multipart' => $params] : ($params ?: new stdClass()), [], $timeout);
+    $j = $r['json'];
+    if ($j && !empty($j['ok'])) return ['ok' => true, 'result' => $j['result'] ?? null, 'code' => $r['code']];
+    $desc = $j['description'] ?? ($r['error'] !== '' ? $r['error'] : 'HTTP ' . $r['code']);
+    return ['ok' => false, 'error' => (string)$desc, 'code' => (int)($j['error_code'] ?? $r['code']),
+            'retry_after' => (int)($j['parameters']['retry_after'] ?? 0)];
+}
+// Discord REST call (API v10). A short rate limit is waited out once.
+function dc_api(string $token, string $method, string $path, $body = null, int $timeout = 20): array {
+    for ($i = 0; $i < 2; $i++) {
+        $r = bot_http($method, BC_DC_API . $path, $body, ['Authorization: Bot ' . $token], $timeout);
+        if ($r['code'] === 429 && $i === 0) {
+            $wait = (float)($r['json']['retry_after'] ?? $r['headers']['retry-after'] ?? 1);
+            if ($wait <= 5) { usleep((int)(max(0.2, $wait) * 1000000)); continue; }
+        }
+        break;
+    }
+    if ($r['code'] >= 200 && $r['code'] < 300) return ['ok' => true, 'result' => $r['json'], 'code' => $r['code']];
+    $msg = (string)($r['json']['message'] ?? ($r['error'] !== '' ? $r['error'] : 'HTTP ' . $r['code']));
+    return ['ok' => false, 'error' => $msg, 'code' => $r['code'], 'retry_after' => (int)ceil((float)($r['json']['retry_after'] ?? 0))];
+}
+
+// Checks a token and says whose bot it is.
+function bot_verify(string $platform, string $token): array {
+    if ($token === '') return ['ok' => false, 'error' => 'No bot token.'];
+    if ($platform === 'telegram') {
+        if (!preg_match('/^\d{5,}:[A-Za-z0-9_-]{30,}$/', $token)) return ['ok' => false, 'error' => 'That doesn’t look like a BotFather token.'];
+        $me = tg_api($token, 'getMe', [], 15);
+        if (!$me['ok']) return ['ok' => false, 'error' => $me['code'] === 401 ? 'Telegram rejected this bot token.' : 'Telegram: ' . $me['error']];
+        $u = (array)$me['result'];
+        $wh = tg_api($token, 'getWebhookInfo', [], 15);
+        $hook = $wh['ok'] ? (string)($wh['result']['url'] ?? '') : '';
+        if ($hook !== '') {
+            $host = (string)(parse_url($hook, PHP_URL_HOST) ?: 'another service');
+            return ['ok' => false, 'error' => 'This bot delivers its messages to a webhook (' . $host . '). Remove it (deleteWebhook) and try again.'];
+        }
+        return ['ok' => true, 'bot_id' => (string)($u['id'] ?? ''), 'bot_name' => (string)($u['first_name'] ?? ''), 'username' => (string)($u['username'] ?? '')];
+    }
+    $me = dc_api($token, 'GET', '/users/@me', null, 15);
+    if (!$me['ok']) return ['ok' => false, 'error' => $me['code'] === 401 ? 'Discord rejected this bot token.' : 'Discord: ' . $me['error']];
+    $u = (array)$me['result'];
+    if (empty($u['bot'])) return ['ok' => false, 'error' => 'That is a user token, not a bot token.'];
+    return ['ok' => true, 'bot_id' => (string)($u['id'] ?? ''), 'bot_name' => (string)($u['global_name'] ?? $u['username'] ?? ''), 'username' => (string)($u['username'] ?? '')];
+}
+
+// Turn the server relay on (or keep it on) for this account's bot. $info:
+// what bot_verify said, or what the desktop app knows.
+function bot_relay_enable(PDO $pdo, int $acc, string $platform, string $token, array $info): void {
+    bot_relay_schema($pdo);
+    $h = bot_tok_hash($token);
+    $cur = bot_relay_row($pdo, $acc, $platform);
+    $same = $cur && (string)$cur['tok_hash'] === $h;
+    $pdo->prepare("INSERT INTO bc_bot_relay (account_id, platform, on_flag, bot_id, bot_name, username, tok_hash, next_at)
+                   VALUES (?,?,1,?,?,?,?,NOW())
+                   ON DUPLICATE KEY UPDATE on_flag=1, bot_id=VALUES(bot_id), bot_name=VALUES(bot_name), username=VALUES(username),
+                                           tok_hash=VALUES(tok_hash), next_at=NOW()")
+        ->execute([$acc, $platform, mb_substr((string)($info['bot_id'] ?? ''), 0, 40), mb_substr((string)($info['bot_name'] ?? ''), 0, 120),
+                   mb_substr((string)($info['username'] ?? ''), 0, 120), $h]);
+    // Another bot now: its own update numbering and its own gateway session.
+    if (!$same) $pdo->prepare("UPDATE bc_bot_relay SET tg_offset=0, dc_state=NULL, fails=0, last_error=NULL, error_at=NULL WHERE account_id=? AND platform=?")->execute([$acc, $platform]);
+}
+
+// Relays the server should be receiving for right now: on, with a token,
+// and no desktop app looking after them.
+function bot_relay_live_rows(PDO $pdo, ?string $platform = null): array {
+    bot_relay_schema($pdo);
+    try {
+        $sql = "SELECT * FROM bc_bot_relay WHERE on_flag=1 AND (host_at IS NULL OR host_at < NOW() - INTERVAL " . (int)BOT_HOST_AFTER . " SECOND)";
+        if ($platform !== null) $sql .= " AND platform=" . $pdo->quote($platform);
+        $q = $pdo->query($sql . " ORDER BY COALESCE(next_at, NOW()) LIMIT 200");
+        return $q ? $q->fetchAll() : [];
+    } catch (Throwable $e) { return []; }
+}
+// Seconds until the relay needs the worker again, or null (nothing to do).
+function bot_relay_next(PDO $pdo): ?int {
+    $best = null;
+    $take = function ($v) use (&$best) { if ($v !== null && $v !== false) { $v = max(0, (int)$v); $best = $best === null ? $v : min($best, $v); } };
+    try {
+        bot_relay_schema($pdo);
+        $q = $pdo->query("SELECT 1 FROM bc_bot_relay WHERE on_flag=1 AND (host_at IS NULL OR host_at < NOW() - INTERVAL " . (int)BOT_HOST_AFTER . " SECOND) LIMIT 1");
+        if ($q && $q->fetchColumn()) $take(2);
+        $q = $pdo->query("SELECT TIMESTAMPDIFF(SECOND, NOW(), MIN(GREATEST(due_at, COALESCE(claimed_at + INTERVAL 3 MINUTE, due_at)))) FROM bc_bot_jobs");
+        if ($q) $take($q->fetchColumn());
+        $q = $pdo->query("SELECT TIMESTAMPDIFF(SECOND, NOW(), MIN(next_at)) FROM bc_bot_outbox WHERE sent_at IS NULL AND failed=0");
+        if ($q) $take($q->fetchColumn());
+    } catch (Throwable $e) {}
+    return $best;
+}
+
+// ── RECEIVING ─────────────────────────────────────────────────
+// One message, platform-neutral:
+//   platform, chat, msg_id, uid, chat_type (private|group|guild), name,
+//   handle, avatar, text, media_type, media_url, media_name, reply_to
+//   (platform id), reply_uid, reply_text, reply_self, mentioned,
+//   reply_to_bot, part (Discord's extra attachments), at (unix time)
+// Stored like the desktop app stores it (MSGS_STORE.onIncoming +
+// save_conversation + save_message), then an answer is queued.
+function bot_ingest(PDO $pdo, int $acc, array $m): int {
+    $platform = (string)$m['platform'];
+    $chat = (string)$m['chat'];
+    $convId = $platform . '_' . $chat;
+    $chatType = (string)($m['chat_type'] ?? 'private');
+    $handle = (string)($m['handle'] ?? '');
+    // Settings → Preferences → Filters, as the app applies them.
+    $known = false;
+    try { $kq = $pdo->prepare("SELECT agent_id, auto_reply FROM bc_conversations WHERE id=? AND account_id=?"); $kq->execute([$convId, $acc]); $conv = $kq->fetch(); $known = (bool)$conv; }
+    catch (Throwable $e) { $conv = null; }
+    if (!bot_prefs_allow($pdo, $acc, $platform, $chatType, $handle, $chat, $known)) return 0;
+    // Blocked here: dropped whole (the end user's block flag).
+    try {
+        $bq = $pdo->prepare("SELECT is_blocked FROM bc_end_users WHERE account_id=? AND conv_id=?");
+        $bq->execute([$acc, $convId]);
+        if ((int)$bq->fetchColumn() === 1) return 0;
+    } catch (Throwable $e) {}
+    $label = ($m['media_type'] ?? '') !== '' ? '[' . ucfirst((string)$m['media_type']) . ']' : '';
+    $text = bc_scrub_inbound(trim((string)($m['text'] ?? '')));
+    $preview = $text !== '' ? $text : (($m['media_name'] ?? '') !== '' ? '📎 ' . $m['media_name'] : $label);
+    $stamp = date('H:i', (int)($m['at'] ?? time()));
+    $part = (int)($m['part'] ?? 0);
+    if (!$conv) {
+        // A new conversation takes the default agent (the lowest-id active
+        // one) and its auto-reply default, as save_conversation does.
+        $agentId = null; $agentName = 'Sales Bot'; $auto = 0;
+        try {
+            $a = $pdo->prepare("SELECT id, name, auto_reply_default FROM bc_agents WHERE active=1 AND account_id=? ORDER BY id ASC LIMIT 1");
+            $a->execute([$acc]);
+            if ($ar = $a->fetch()) { $agentId = (int)$ar['id']; $agentName = (string)$ar['name']; $auto = (int)$ar['auto_reply_default']; }
+        } catch (Throwable $e) {}
+        $cols = ['#7c6ef5','#5ba3e8','#43c98a','#e8a844','#e87070','#9b7ff0','#3ec9d6','#e060c0','#8dc94a','#e8883a'];
+        $pdo->prepare("INSERT INTO bc_conversations (id, chat_id, platform, name, handle, avatar, chat_type, col, stage, last_msg, last_t, ai_status, agent, agent_id, auto_reply, unread, account_id)
+                       VALUES (?,?,?,?,?,?,?,?, 'new', ?, ?, 'waiting', ?, ?, ?, 1, ?)
+                       ON DUPLICATE KEY UPDATE last_msg=VALUES(last_msg), last_t=VALUES(last_t)")
+            ->execute([$convId, $chat, $platform, mb_substr((string)($m['name'] ?? '') ?: ($handle ?: 'User'), 0, 200), mb_substr($handle ?: $chat, 0, 200),
+                       (string)($m['avatar'] ?? ''), $chatType, $cols[crc32($convId) % 10], mb_substr($preview, 0, 2000), $stamp, $agentName, $agentId, $auto, $acc]);
+    } else {
+        $sets = "last_msg=?, last_t=?, updated_at=NOW()" . ($part === 0 ? ", unread=unread+1" : "");
+        $vals = [mb_substr($preview, 0, 2000), $stamp];
+        if (trim((string)($m['name'] ?? '')) !== '') { $sets .= ", name=?"; $vals[] = mb_substr((string)$m['name'], 0, 200); }
+        if ($handle !== '') { $sets .= ", handle=?"; $vals[] = mb_substr($handle, 0, 200); }
+        if (!empty($m['avatar'])) { $sets .= ", avatar=?"; $vals[] = (string)$m['avatar']; }
+        $vals[] = $convId; $vals[] = $acc;
+        $pdo->prepare("UPDATE bc_conversations SET $sets WHERE id=? AND account_id=?")->execute($vals);
+    }
+    try {
+        $pdo->prepare("INSERT INTO bc_end_users (account_id, conv_id, platform, chat_id, name, handle) VALUES (?,?,?,?,?,?)
+                       ON DUPLICATE KEY UPDATE name=IF(VALUES(name)<>'', VALUES(name), name), handle=IF(VALUES(handle)<>'', VALUES(handle), handle)")
+            ->execute([$acc, $convId, $platform, $chat, mb_substr((string)($m['name'] ?? ''), 0, 200), mb_substr($handle, 0, 200)]);
+    } catch (Throwable $e) {}
+    // The message row, exactly as save_message writes it.
+    $mc = bc_msg_cols($pdo);
+    $cols = ['conv_id', 'role', 'content', 'media_type', 'media_url', 'ts', 'msg_uid', 'account_id', 'mentioned', 'reply_to_bot'];
+    $vals = [$convId, 'in', $text, (string)($m['media_type'] ?? ''), (string)($m['media_url'] ?? ''), $stamp, mb_substr((string)$m['uid'], 0, 100),
+             $acc, !empty($m['mentioned']) ? 1 : 0, !empty($m['reply_to_bot']) ? 1 : 0];
+    if (isset($mc['media_name']) && ($m['media_name'] ?? '') !== '') { $cols[] = 'media_name'; $vals[] = mb_substr((string)$m['media_name'], 0, 255); }
+    if (isset($mc['reply_to_uid']) && ($m['reply_uid'] ?? '') !== '') {
+        $cols[] = 'reply_to_uid'; $vals[] = mb_substr((string)$m['reply_uid'], 0, 100);
+        if (isset($mc['reply_meta'])) {
+            $rq = ['uid' => (string)$m['reply_uid'], 'r' => !empty($m['reply_self']) ? 'bot' : 'in', 'c' => mb_substr((string)($m['reply_text'] ?? ''), 0, 280)];
+            try {
+                $rs = $pdo->prepare("SELECT role, content, media_type FROM bc_messages WHERE account_id=? AND conv_id=? AND msg_uid=? LIMIT 1");
+                $rs->execute([$acc, $convId, (string)$m['reply_uid']]);
+                if ($tr = $rs->fetch()) { $rq['r'] = (string)$tr['role']; if ($rq['c'] === '') $rq['c'] = mb_substr((string)$tr['content'], 0, 280); $rq['mt'] = (string)$tr['media_type']; }
+            } catch (Throwable $e) {}
+            $rm = bc_reply_meta_json($rq);
+            if ($rm !== '') { $cols[] = 'reply_meta'; $vals[] = $rm; }
+        }
+    }
+    try {
+        $pdo->prepare("INSERT INTO bc_messages (" . implode(',', $cols) . ") VALUES (" . implode(',', array_fill(0, count($cols), '?')) . ")")->execute($vals);
+        $mid = (int)$pdo->lastInsertId();
+    } catch (PDOException $e) {
+        if ($e->getCode() == '23000') return 0;         // already stored (the desktop app, or a replay)
+        throw $e;
+    }
+    // Extra attachments of one Discord message are bubbles, not new turns.
+    if ($part > 0) return $mid;
+    bot_queue_reply($pdo, $acc, $convId);
+    return $mid;
+}
+// Preferences → Filters (chat types, contacts only, the block list),
+// stored by the app in the credential 'inbound_prefs'.
+function bot_prefs_allow(PDO $pdo, int $acc, string $platform, string $chatType, string $handle, string $chat, bool $known): bool {
+    static $cache = [];
+    if (!array_key_exists($acc, $cache)) {
+        $cache[$acc] = null;
+        try {
+            $q = $pdo->prepare("SELECT meta FROM bc_credentials WHERE account_id=? AND `key`='inbound_prefs' LIMIT 1");
+            $q->execute([$acc]);
+            $j = json_decode((string)($q->fetchColumn() ?: ''), true);
+            if (is_array($j)) $cache[$acc] = $j;
+        } catch (Throwable $e) {}
+    }
+    $p = $cache[$acc];
+    if (!$p) return true;
+    $h = strtolower(ltrim(trim($handle), '@'));
+    foreach ((array)($p['blocked'] ?? []) as $b) {
+        if (!is_array($b) || ($b['platform'] ?? '') !== $platform) continue;
+        $bh = strtolower(ltrim(trim((string)($b['handle'] ?? '')), '@'));
+        if (($h !== '' && $bh === $h) || ((string)($b['chatId'] ?? '') !== '' && (string)$b['chatId'] === $chat)) return false;
+    }
+    $ct = $chatType === 'channel' ? 'channel' : (in_array($chatType, ['group', 'supergroup', 'guild'], true) ? 'group' : 'private');
+    if (($p['allow'][$platform][$ct] ?? true) === false) return false;
+    if (!empty($p['contactsOnly'][$platform]) && !$known) return false;
+    return true;
+}
+// Queue (or push back) the answer for a conversation: the agent's read delay,
+// as in every other chat. A burst of messages keeps one job.
+function bot_queue_reply(PDO $pdo, int $acc, string $convId): void {
+    try {
+        $c = $pdo->prepare("SELECT c.auto_reply, c.agent_id, a.read_delay_min, a.read_delay_max, a.active
+                              FROM bc_conversations c LEFT JOIN bc_agents a ON a.id = c.agent_id AND a.account_id = c.account_id
+                             WHERE c.id=? AND c.account_id=?");
+        $c->execute([$convId, $acc]);
+        $r = $c->fetch();
+        if (!$r || (int)$r['auto_reply'] !== 1) return;
+        $lo = max(1, (int)($r['read_delay_min'] ?? 2)); $hi = max($lo, min(20, (int)($r['read_delay_max'] ?? 9)));
+        $wait = mt_rand($lo, $hi) + 1;
+        $pdo->prepare("INSERT INTO bc_bot_jobs (account_id, conv_id, due_at) VALUES (?, ?, NOW() + INTERVAL ? SECOND)
+                       ON DUPLICATE KEY UPDATE due_at = GREATEST(due_at, VALUES(due_at)), tries = 0")
+            ->execute([$acc, $convId, $wait]);
+    } catch (Throwable $e) { error_log('[bot-relay] queue failed: ' . get_class($e)); }
+}
+
+// Telegram: one getUpdates pass for one bot. Returns messages stored.
+function bot_poll_telegram(PDO $pdo, array $row, int $wait = 0): int {
+    $acc = (int)$row['account_id'];
+    $token = bot_token($pdo, $acc, 'telegram');
+    if ($token === '') { bot_relay_error($pdo, $acc, 'telegram', 'No bot token saved.', 300); return 0; }
+    if (bot_tok_hash($token) !== (string)$row['tok_hash']) {
+        // The token was changed in Settings: start again for the new bot.
+        $v = bot_verify('telegram', $token);
+        if (!$v['ok']) { bot_relay_error($pdo, $acc, 'telegram', $v['error'], 600); return 0; }
+        bot_relay_enable($pdo, $acc, 'telegram', $token, $v);
+        $row = bot_relay_row($pdo, $acc, 'telegram') ?: $row;
+    }
+    $r = tg_api($token, 'getUpdates', ['offset' => (int)$row['tg_offset'] + 0, 'timeout' => max(0, min(20, $wait)), 'limit' => 50,
+                                       'allowed_updates' => ['message', 'edited_message']], 15 + $wait);
+    $pdo->prepare("UPDATE bc_bot_relay SET polled_at=NOW() WHERE account_id=? AND platform='telegram'")->execute([$acc]);
+    if (!$r['ok']) {
+        $code = (int)$r['code'];
+        if ($code === 401 || $code === 404) { bot_relay_error($pdo, $acc, 'telegram', 'Telegram rejected the bot token. Update it in Settings → Telegram.', 900); return 0; }
+        if ($code === 409) {
+            // Someone else is receiving: a webhook, or the desktop app that
+            // hasn't said it's back yet. Step back for a minute.
+            $why = stripos($r['error'], 'webhook') !== false ? 'This bot delivers to a webhook, so the server can’t receive its messages. Remove the webhook (deleteWebhook).'
+                                                           : 'Another app is receiving this bot’s messages right now (the desktop app?).';
+            bot_relay_error($pdo, $acc, 'telegram', $why, 60);
+            return 0;
+        }
+        bot_relay_error($pdo, $acc, 'telegram', 'Telegram: ' . $r['error'], $r['retry_after'] ?: min(300, 5 * (2 ** min(6, (int)$row['fails']))));
+        return 0;
+    }
+    bot_relay_error($pdo, $acc, 'telegram', null);
+    $ups = is_array($r['result']) ? $r['result'] : [];
+    $n = 0; $max = (int)$row['tg_offset'] - 1;
+    foreach ($ups as $u) {
+        $uid = (int)($u['update_id'] ?? 0);
+        try {
+            if (isset($u['message'])) { if (bot_ingest_tg($pdo, $acc, $row, (array)$u['message'], $token)) $n++; }
+            elseif (isset($u['edited_message'])) bot_edit_tg($pdo, $acc, (array)$u['edited_message']);
+        } catch (Throwable $e) { error_log('[bot-relay] telegram update skipped: ' . get_class($e) . ' @' . $e->getLine()); }
+        $max = max($max, $uid);
+        // Confirmed one at a time: a crash half way never loses (or repeats) more than one.
+        $pdo->prepare("UPDATE bc_bot_relay SET tg_offset=? WHERE account_id=? AND platform='telegram'")->execute([$max + 1, $acc]);
+    }
+    $pdo->prepare("UPDATE bc_bot_relay SET next_at=NOW() + INTERVAL ? SECOND WHERE account_id=? AND platform='telegram'")->execute([$ups ? 1 : 2, $acc]);
+    return $n;
+}
+function bot_ingest_tg(PDO $pdo, int $acc, array $row, array $msg, string $token): bool {
+    $chat = (array)($msg['chat'] ?? []);
+    $from = (array)($msg['from'] ?? []);
+    if (!empty($from['is_bot'])) return false;
+    $type = (string)($chat['type'] ?? 'private');
+    $chatType = in_array($type, ['group', 'supergroup', 'channel'], true) ? 'group' : 'private';
+    $botUser = strtolower((string)$row['username']);
+    $botId = (string)$row['bot_id'];
+    // What it carries (ExtractTelegramContent in Form1.vb).
+    $mt = ''; $fid = ''; $fname = ''; $fsize = 0; $mime = '';
+    foreach ([['photo', 'photo'], ['voice', 'voice'], ['audio', 'audio'], ['video', 'video'], ['video_note', 'video'], ['animation', 'gif'], ['document', 'document'], ['sticker', 'sticker']] as [$k, $kind]) {
+        if (!isset($msg[$k])) continue;
+        $o = $msg[$k];
+        if ($k === 'photo') $o = end($o) ?: [];
+        $o = (array)$o;
+        $mt = $kind; $fid = (string)($o['file_id'] ?? ''); $fname = (string)($o['file_name'] ?? ''); $fsize = (int)($o['file_size'] ?? 0); $mime = (string)($o['mime_type'] ?? '');
+        if ($k === 'sticker') { if (!empty($o['is_video'])) $mt = 'video'; elseif (!empty($o['is_animated'])) { $mt = 'document'; $fname = 'sticker.tgs'; } }
+        if ($mt === 'document' && stripos($mime, 'image/') === 0) $mt = 'photo';
+        break;
+    }
+    $text = (string)($msg['text'] ?? $msg['caption'] ?? '');
+    if ($text === '' && $mt === '') return false;          // joins, pins, title changes…
+    $ents = array_merge((array)($msg['entities'] ?? []), (array)($msg['caption_entities'] ?? []));
+    $mentioned = false;
+    if ($chatType !== 'private') {
+        foreach ($ents as $e) {
+            $e = (array)$e;
+            if (($e['type'] ?? '') === 'mention' && $botUser !== '' && strtolower(mb_substr($text, (int)$e['offset'] + 1, (int)$e['length'] - 1)) === $botUser) $mentioned = true;
+            if (($e['type'] ?? '') === 'text_mention' && (string)($e['user']['id'] ?? '') === $botId) $mentioned = true;
+        }
+        if (!$mentioned && $botUser !== '' && stripos($text, '@' . $botUser) !== false) $mentioned = true;
+    }
+    $rep = isset($msg['reply_to_message']) ? (array)$msg['reply_to_message'] : null;
+    $replySelf = $rep && (string)($rep['from']['id'] ?? '') === $botId && $botId !== '';
+    $chatId = (string)($chat['id'] ?? '');
+    $name = $chatType === 'private' ? trim(((string)($from['first_name'] ?? '')) . ' ' . ((string)($from['last_name'] ?? ''))) : (string)($chat['title'] ?? $chatId);
+    if ($name === '') $name = (string)($from['username'] ?? $chatId);
+    $media = '';
+    if ($fid !== '') $media = ($fsize > 20 * 1048576) ? '' : bc_self_api_url() . '?action=bot_relay_file&p=telegram&f=' . rawurlencode($fid) . ($fname !== '' ? '&n=' . rawurlencode($fname) : '');
+    return bot_ingest($pdo, $acc, [
+        'platform' => 'telegram', 'chat' => $chatId, 'msg_id' => (string)($msg['message_id'] ?? ''),
+        'uid' => 'tg:' . $chatId . ':' . ($msg['message_id'] ?? ''), 'chat_type' => $chatType, 'name' => $name,
+        'handle' => !empty($from['username']) ? '@' . bc_handle_norm($from['username']) : '',
+        'text' => $mt !== '' ? (string)($msg['caption'] ?? '') : $text,
+        'media_type' => $mt, 'media_url' => $media, 'media_name' => $fname,
+        'reply_uid' => $rep ? 'tg:' . $chatId . ':' . ($rep['message_id'] ?? '') : '',
+        'reply_text' => $rep ? (string)($rep['text'] ?? $rep['caption'] ?? '') : '', 'reply_self' => $replySelf,
+        'mentioned' => $mentioned, 'reply_to_bot' => $chatType !== 'private' && $replySelf, 'at' => (int)($msg['date'] ?? time()),
+    ]) > 0;
+}
+// An edit the customer made (Telegram tells bots about edits, not deletions).
+function bot_edit_tg(PDO $pdo, int $acc, array $msg): void {
+    $chatId = (string)($msg['chat']['id'] ?? '');
+    $uid = 'tg:' . $chatId . ':' . ($msg['message_id'] ?? '');
+    $text = bc_scrub_inbound((string)($msg['text'] ?? $msg['caption'] ?? ''));
+    $mc = bc_msg_cols($pdo);
+    $extra = isset($mc['edited_at']) ? ", edited_at=NOW()" . (isset($mc['orig_content']) ? ", orig_content=IF(orig_content IS NULL OR orig_content='', content, orig_content)" : '') : '';
+    $pdo->prepare("UPDATE bc_messages SET content=?$extra WHERE account_id=? AND conv_id=? AND msg_uid=? AND role='in'")
+        ->execute([$text, $acc, 'telegram_' . $chatId, $uid]);
+}
+
+// Discord: a message from the Gateway or a REST catch-up.
+function bot_ingest_dc(PDO $pdo, int $acc, array $row, array $d): int {
+    $author = (array)($d['author'] ?? []);
+    if (!empty($author['bot']) || (string)($author['id'] ?? '') === (string)$row['bot_id']) return 0;
+    $type = (int)($d['type'] ?? 0);
+    if ($type !== 0 && $type !== 19) return 0;              // default and reply only
+    $ch = (string)($d['channel_id'] ?? '');
+    if ($ch === '') return 0;
+    $guild = (string)($d['guild_id'] ?? '');
+    $chatType = $guild !== '' ? 'guild' : 'private';
+    $mentioned = false;
+    foreach ((array)($d['mentions'] ?? []) as $u) if ((string)($u['id'] ?? '') === (string)$row['bot_id']) $mentioned = true;
+    $ref = isset($d['referenced_message']) && is_array($d['referenced_message']) ? $d['referenced_message'] : null;
+    $replySelf = $ref && (string)($ref['author']['id'] ?? '') === (string)$row['bot_id'];
+    $uname = (string)($author['username'] ?? '');
+    $disc = (string)($author['discriminator'] ?? '0');
+    $handle = $uname !== '' ? '@' . $uname . (($disc !== '' && $disc !== '0' && $disc !== '0000') ? '#' . $disc : '') : '';
+    $avatar = !empty($author['avatar']) ? 'https://cdn.discordapp.com/avatars/' . $author['id'] . '/' . $author['avatar'] . '.png?size=256' : '';
+    $name = $guild !== '' ? (string)($d['__guild_name'] ?? 'Server') . ' · #' . (string)($d['__channel_name'] ?? $ch) : ((string)($author['global_name'] ?? '') ?: $uname);
+    $atts = array_values((array)($d['attachments'] ?? []));
+    $base = 'dc:' . $ch . ':' . ($d['id'] ?? '');
+    $at = strtotime((string)($d['timestamp'] ?? '')) ?: time();
+    $first = 0;
+    $parts = max(1, count($atts));
+    for ($i = 0; $i < $parts; $i++) {
+        $a = $atts[$i] ?? null;
+        $mt = ''; $url = ''; $fn = '';
+        if ($a) {
+            $ct = strtolower((string)($a['content_type'] ?? ''));
+            $mt = strpos($ct, 'image/') === 0 ? (strpos($ct, 'gif') !== false ? 'gif' : 'photo') : (strpos($ct, 'video/') === 0 ? 'video' : (strpos($ct, 'audio/') === 0 ? 'audio' : 'document'));
+            $url = (string)($a['url'] ?? ''); $fn = (string)($a['filename'] ?? '');
+        }
+        $txt = $i === 0 ? (string)($d['content'] ?? '') : '';
+        if ($i === 0 && $txt === '' && !$a) return 0;
+        $id = bot_ingest($pdo, $acc, [
+            'platform' => 'discord', 'chat' => $ch, 'msg_id' => (string)($d['id'] ?? ''), 'uid' => $i === 0 ? $base : $base . '#' . $i, 'part' => $i,
+            'chat_type' => $chatType, 'name' => $name, 'handle' => $handle, 'avatar' => $avatar, 'text' => $txt,
+            'media_type' => $mt, 'media_url' => $url, 'media_name' => $fn,
+            'reply_uid' => $i === 0 && $ref ? 'dc:' . $ch . ':' . ($ref['id'] ?? '') : '', 'reply_text' => $ref ? (string)($ref['content'] ?? '') : '',
+            'reply_self' => $replySelf, 'mentioned' => $mentioned, 'reply_to_bot' => $replySelf, 'at' => $at,
+        ]);
+        if ($i === 0) $first = $id;
+    }
+    if ($chatType === 'private' && $first > 0) {
+        try {
+            $pdo->prepare("INSERT INTO bc_bot_conv (account_id, conv_id, dc_last) VALUES (?,?,?) ON DUPLICATE KEY UPDATE dc_last=IF(CAST(VALUES(dc_last) AS UNSIGNED) > CAST(dc_last AS UNSIGNED), VALUES(dc_last), dc_last)")
+                ->execute([$acc, 'discord_' . $ch, (string)($d['id'] ?? '')]);
+        } catch (Throwable $e) {}
+    }
+    return $first;
+}
+// DMs that arrived while nobody was listening (between workers, or a
+// session that couldn't be resumed): known DM channels are read back over
+// REST. A stranger's first DM in such a gap can't be found this way —
+// Discord doesn't list a bot's DM channels — which is why the Gateway is
+// kept connected whenever it can be.
+function bot_dc_catch_up(PDO $pdo, array $row, int $maxChannels = 15): int {
+    $acc = (int)$row['account_id'];
+    $token = bot_token($pdo, $acc, 'discord');
+    if ($token === '') return 0;
+    $n = 0;
+    try {
+        $q = $pdo->prepare("SELECT c.id, c.chat_id, COALESCE(b.dc_last, '') AS dc_last FROM bc_conversations c
+                              LEFT JOIN bc_bot_conv b ON b.account_id = c.account_id AND b.conv_id = c.id
+                             WHERE c.account_id=? AND c.platform='discord' AND c.chat_type='private' AND c.updated_at > NOW() - INTERVAL 14 DAY
+                             ORDER BY c.updated_at DESC LIMIT " . (int)$maxChannels);
+        $q->execute([$acc]);
+        foreach ($q->fetchAll() as $c) {
+            $after = (string)$c['dc_last'];
+            if ($after === '') {
+                // Never tracked: start from the newest message we have stored.
+                $lq = $pdo->prepare("SELECT msg_uid FROM bc_messages WHERE account_id=? AND conv_id=? AND msg_uid LIKE 'dc:%' ORDER BY id DESC LIMIT 1");
+                $lq->execute([$acc, $c['id']]);
+                $u = (string)($lq->fetchColumn() ?: '');
+                if (preg_match('/^dc:\d+:(\d+)/', $u, $mm)) $after = $mm[1];
+            }
+            if ($after === '') continue;
+            $r = dc_api($token, 'GET', '/channels/' . $c['chat_id'] . '/messages?limit=50&after=' . $after, null, 15);
+            if (!$r['ok']) { if ((int)$r['code'] === 401) { bot_relay_error($pdo, $acc, 'discord', 'Discord rejected the bot token. Update it in Settings → Discord.', 900); return $n; } continue; }
+            $msgs = array_reverse(is_array($r['result']) ? $r['result'] : []);
+            foreach ($msgs as $d) { $d = (array)$d; $d['channel_id'] = $d['channel_id'] ?? $c['chat_id']; if (bot_ingest_dc($pdo, $acc, $row, $d) > 0) $n++; }
+        }
+    } catch (Throwable $e) { error_log('[bot-relay] discord catch-up: ' . get_class($e)); }
+    return $n;
+}
+
+// ── A MINIMAL WEBSOCKET CLIENT (for the Discord Gateway) ──────
+function ws_open(string $url, int $timeout = 10): ?array {
+    $u = parse_url($url);
+    if (!$u || empty($u['host'])) return null;
+    $host = (string)$u['host'];
+    $tls = ($u['scheme'] ?? 'wss') === 'wss';
+    $port = (int)($u['port'] ?? ($tls ? 443 : 80));
+    $path = ($u['path'] ?? '/') . (isset($u['query']) ? '?' . $u['query'] : '');
+    $ctx = stream_context_create(['ssl' => ['verify_peer' => true, 'verify_peer_name' => true, 'peer_name' => $host, 'SNI_enabled' => true]]);
+    $fp = @stream_socket_client(($tls ? 'ssl://' : 'tcp://') . $host . ':' . $port, $errno, $errstr, $timeout, STREAM_CLIENT_CONNECT, $ctx);
+    if (!$fp) return null;
+    stream_set_timeout($fp, $timeout);
+    $key = base64_encode(random_bytes(16));
+    $req = "GET $path HTTP/1.1\r\nHost: $host\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: $key\r\nSec-WebSocket-Version: 13\r\nUser-Agent: BotCommand-relay\r\n\r\n";
+    if (@fwrite($fp, $req) === false) { @fclose($fp); return null; }
+    $head = ''; $deadline = microtime(true) + $timeout;
+    while (strpos($head, "\r\n\r\n") === false && microtime(true) < $deadline) {
+        $c = @fread($fp, 1024);
+        if ($c === false || ($c === '' && feof($fp))) break;
+        $head .= $c;
+        if (strlen($head) > 16384) break;
+    }
+    $p = strpos($head, "\r\n\r\n");
+    if ($p === false || !preg_match('#^HTTP/1\.[01] 101#', $head)) { @fclose($fp); return null; }
+    $accept = base64_encode(sha1($key . '258EAFA5-E914-47DA-95CA-C5AB0DC85B11', true));
+    if (stripos($head, 'Sec-WebSocket-Accept: ' . $accept) === false) { @fclose($fp); return null; }
+    stream_set_blocking($fp, false);
+    return ['fp' => $fp, 'buf' => (string)substr($head, $p + 4), 'frag' => '', 'fop' => 0, 'closed' => false, 'close_code' => 0];
+}
+function ws_send(array &$ws, string $data, int $op = 1): bool {
+    if ($ws['closed']) return false;
+    $len = strlen($data);
+    $h = chr(0x80 | $op);
+    if ($len < 126) $h .= chr(0x80 | $len);
+    elseif ($len < 65536) $h .= chr(0x80 | 126) . pack('n', $len);
+    else $h .= chr(0x80 | 127) . pack('J', $len);
+    $mask = random_bytes(4);
+    $masked = $data ^ str_repeat($mask, intdiv($len, 4) + 1);
+    $frame = $h . $mask . substr($masked, 0, $len);
+    stream_set_blocking($ws['fp'], true);
+    $off = 0; $ok = true;
+    while ($off < strlen($frame)) {
+        $w = @fwrite($ws['fp'], substr($frame, $off));
+        if ($w === false || $w === 0) { $ok = false; break; }
+        $off += $w;
+    }
+    stream_set_blocking($ws['fp'], false);
+    if (!$ok) $ws['closed'] = true;
+    return $ok;
+}
+// Everything that has arrived: a list of ['op' => 1|2|8, 'data' => …].
+// Pings are answered here.
+function ws_read(array &$ws): array {
+    $out = [];
+    if ($ws['closed']) return $out;
+    for ($i = 0; $i < 64; $i++) {
+        $c = @fread($ws['fp'], 65536);
+        if ($c === false || $c === '') { if (feof($ws['fp'])) $ws['closed'] = true; break; }
+        $ws['buf'] .= $c;
+    }
+    while (true) {
+        $b = $ws['buf'];
+        if (strlen($b) < 2) break;
+        $b0 = ord($b[0]); $b1 = ord($b[1]);
+        $fin = ($b0 & 0x80) !== 0; $op = $b0 & 0x0f; $len = $b1 & 0x7f; $pos = 2;
+        if ($len === 126) { if (strlen($b) < 4) break; $len = unpack('n', substr($b, 2, 2))[1]; $pos = 4; }
+        elseif ($len === 127) { if (strlen($b) < 10) break; $len = unpack('J', substr($b, 2, 8))[1]; $pos = 10; }
+        $masked = ($b1 & 0x80) !== 0;
+        $mask = '';
+        if ($masked) { if (strlen($b) < $pos + 4) break; $mask = substr($b, $pos, 4); $pos += 4; }
+        if (strlen($b) < $pos + $len) break;
+        $payload = substr($b, $pos, $len);
+        if ($masked) $payload = $payload ^ substr(str_repeat($mask, intdiv($len, 4) + 1), 0, $len);
+        $ws['buf'] = (string)substr($b, $pos + $len);
+        if ($op === 9) { ws_send($ws, $payload, 10); continue; }
+        if ($op === 10) continue;
+        if ($op === 8) {
+            $ws['close_code'] = strlen($payload) >= 2 ? unpack('n', substr($payload, 0, 2))[1] : 1005;
+            $ws['closed'] = true;
+            $out[] = ['op' => 8, 'data' => $ws['close_code']];
+            break;
+        }
+        if ($op === 0) { $ws['frag'] .= $payload; if ($fin) { $out[] = ['op' => $ws['fop'], 'data' => $ws['frag']]; $ws['frag'] = ''; } continue; }
+        if ($fin) $out[] = ['op' => $op, 'data' => $payload];
+        else { $ws['fop'] = $op; $ws['frag'] = $payload; }
+    }
+    return $out;
+}
+function ws_drop(array &$ws): void { if (!empty($ws['fp'])) { @fclose($ws['fp']); } $ws['closed'] = true; }
+
+// ── THE DISCORD GATEWAY ───────────────────────────────────────
+// One session per bot, kept by the background worker. A worker hands over
+// every few minutes; the next one RESUMEs the same session (Discord replays
+// what was missed), so nothing arrives in the gap. Closing without a close
+// frame is on purpose: a proper close would end the session.
+const DC_INTENTS_BASE = (1 << 0) | (1 << 9) | (1 << 12);    // guilds, guild messages, direct messages
+const DC_INTENT_CONTENT = 1 << 15;                          // message content (privileged)
+function bot_dc_state(array $row): array {
+    $s = json_decode((string)($row['dc_state'] ?? ''), true);
+    return is_array($s) ? $s : [];
+}
+function bot_dc_save(PDO $pdo, int $acc, array $st): void {
+    try { $pdo->prepare("UPDATE bc_bot_relay SET dc_state=? WHERE account_id=? AND platform='discord'")->execute([json_encode($st), $acc]); } catch (Throwable $e) {}
+}
+// Keeps every live Discord relay's session going. $conns persists across
+// calls within one worker. Returns messages stored.
+function bot_dc_pump(PDO $pdo, array &$conns, array $rows): int {
+    $n = 0;
+    $now = microtime(true);
+    $live = [];
+    foreach ($rows as $row) $live[(int)$row['account_id']] = $row;
+    // Relays switched off, or taken back by the desktop app: let go.
+    foreach (array_keys($conns) as $acc) if (!isset($live[$acc])) { bot_dc_close($pdo, $conns[$acc]); unset($conns[$acc]); }
+    foreach ($live as $acc => $row) {
+        if (!isset($conns[$acc])) {
+            if (!empty($row['next_at']) && strtotime((string)$row['next_at']) > time()) continue;   // backing off
+            $token = bot_token($pdo, $acc, 'discord');
+            if ($token === '') { bot_relay_error($pdo, $acc, 'discord', 'No bot token saved.', 300); continue; }
+            if (bot_tok_hash($token) !== (string)$row['tok_hash']) {
+                $v = bot_verify('discord', $token);
+                if (!$v['ok']) { bot_relay_error($pdo, $acc, 'discord', $v['error'], 600); continue; }
+                bot_relay_enable($pdo, $acc, 'discord', $token, $v);
+                $row = bot_relay_row($pdo, $acc, 'discord') ?: $row;
+            }
+            $st = bot_dc_state($row);
+            $url = (string)($st['resume_url'] ?? '') ?: BC_DC_GATEWAY;
+            $ws = ws_open(rtrim($url, '/') . '/?v=10&encoding=json', 10);
+            if (!$ws && !empty($st['resume_url'])) { $st = []; $ws = ws_open(BC_DC_GATEWAY . '/?v=10&encoding=json', 10); }
+            if (!$ws) { bot_relay_error($pdo, $acc, 'discord', 'Couldn’t reach the Discord gateway from this server.', min(300, 10 * (2 ** min(5, (int)$row['fails'])))); continue; }
+            $conns[$acc] = ['ws' => $ws, 'token' => $token, 'row' => $row, 'st' => $st, 'hb' => 0.0, 'next_hb' => 0.0, 'acked' => true, 'opened' => microtime(true),
+                            'ready' => false, 'saved' => $now, 'guilds' => [], 'chans' => []];
+        }
+        $c = &$conns[$acc];
+        foreach (ws_read($c['ws']) as $f) {
+            if ($f['op'] === 8) break;
+            if ($f['op'] !== 1) continue;
+            $p = json_decode($f['data'], true);
+            if (!is_array($p)) continue;
+            if (isset($p['s']) && $p['s'] !== null) $c['st']['seq'] = (int)$p['s'];
+            $op = (int)($p['op'] ?? -1);
+            if ($op === 10) {
+                $c['hb'] = max(1000, (int)($p['d']['heartbeat_interval'] ?? 41250)) / 1000;
+                $c['next_hb'] = microtime(true) + $c['hb'] * (mt_rand(10, 90) / 100);
+                if (!empty($c['st']['session_id']) && isset($c['st']['seq'])) {
+                    ws_send($c['ws'], json_encode(['op' => 6, 'd' => ['token' => $c['token'], 'session_id' => $c['st']['session_id'], 'seq' => (int)$c['st']['seq']]]));
+                } else {
+                    $intents = DC_INTENTS_BASE | (empty($c['st']['no_content']) ? DC_INTENT_CONTENT : 0);
+                    ws_send($c['ws'], json_encode(['op' => 2, 'd' => ['token' => $c['token'], 'intents' => $intents,
+                        'properties' => ['os' => 'linux', 'browser' => 'botcommand', 'device' => 'botcommand']]]));
+                }
+            } elseif ($op === 11) {
+                $c['acked'] = true;
+            } elseif ($op === 1) {
+                ws_send($c['ws'], json_encode(['op' => 1, 'd' => $c['st']['seq'] ?? null]));
+            } elseif ($op === 7) {
+                ws_drop($c['ws']);                                  // reconnect and resume
+            } elseif ($op === 9) {
+                if (empty($p['d'])) { $keep = !empty($c['st']['no_content']) ? ['no_content' => 1] : []; $c['st'] = $keep; }
+                bot_dc_save($pdo, $acc, $c['st']);
+                ws_drop($c['ws']);
+            } elseif ($op === 0) {
+                $t = (string)($p['t'] ?? '');
+                $d = is_array($p['d'] ?? null) ? $p['d'] : [];
+                if ($t === 'READY') {
+                    $c['st']['session_id'] = (string)($d['session_id'] ?? '');
+                    $c['st']['resume_url'] = (string)($d['resume_gateway_url'] ?? '');
+                    $c['ready'] = true;
+                    bot_dc_save($pdo, $acc, $c['st']);
+                    bot_relay_error($pdo, $acc, 'discord', null);
+                    // A new session: what came in before it is read back from known DMs.
+                    $n += bot_dc_catch_up($pdo, $c['row']);
+                } elseif ($t === 'RESUMED') {
+                    $c['ready'] = true;
+                    bot_relay_error($pdo, $acc, 'discord', null);
+                } elseif ($t === 'GUILD_CREATE') {
+                    $gid = (string)($d['id'] ?? '');
+                    $c['guilds'][$gid] = (string)($d['name'] ?? 'Server');
+                    foreach ((array)($d['channels'] ?? []) as $gc) $c['chans'][(string)($gc['id'] ?? '')] = (string)($gc['name'] ?? '');
+                } elseif ($t === 'MESSAGE_CREATE') {
+                    if (!empty($d['guild_id'])) {
+                        $d['__guild_name'] = $c['guilds'][(string)$d['guild_id']] ?? 'Server';
+                        $d['__channel_name'] = $c['chans'][(string)($d['channel_id'] ?? '')] ?? (string)($d['channel_id'] ?? '');
+                    }
+                    try { if (bot_ingest_dc($pdo, $acc, $c['row'], $d) > 0) $n++; }
+                    catch (Throwable $e) { error_log('[bot-relay] discord message skipped: ' . get_class($e) . ' @' . $e->getLine()); }
+                } elseif ($t === 'MESSAGE_UPDATE' && isset($d['content']) && empty($d['author']['bot'])) {
+                    try {
+                        $mc = bc_msg_cols($pdo);
+                        $extra = isset($mc['edited_at']) ? ", edited_at=NOW()" . (isset($mc['orig_content']) ? ", orig_content=IF(orig_content IS NULL OR orig_content='', content, orig_content)" : '') : '';
+                        $pdo->prepare("UPDATE bc_messages SET content=?$extra WHERE account_id=? AND conv_id=? AND msg_uid=? AND role='in'")
+                            ->execute([bc_scrub_inbound((string)$d['content']), $acc, 'discord_' . ($d['channel_id'] ?? ''), 'dc:' . ($d['channel_id'] ?? '') . ':' . ($d['id'] ?? '')]);
+                    } catch (Throwable $e) {}
+                }
+            }
+        }
+        if (!$c['ws']['closed'] && $c['hb'] > 0 && microtime(true) >= $c['next_hb']) {
+            if (!$c['acked']) ws_drop($c['ws']);                    // a zombie connection: reconnect
+            else { ws_send($c['ws'], json_encode(['op' => 1, 'd' => $c['st']['seq'] ?? null])); $c['acked'] = false; $c['next_hb'] = microtime(true) + $c['hb']; }
+        }
+        if ($c['ws']['closed']) {
+            $code = (int)$c['ws']['close_code'];
+            if ($code === 4004) { bot_relay_error($pdo, $acc, 'discord', 'Discord rejected the bot token. Update it in Settings → Discord.', 900); $c['st'] = []; }
+            elseif ($code === 4014 && empty($c['st']['no_content'])) { $c['st'] = ['no_content' => 1]; error_log('[bot-relay] discord: Message Content intent is off for this bot; server messages will only show text that mentions it.'); }
+            elseif (in_array($code, [4010, 4011, 4012, 4013, 4014], true)) { bot_relay_error($pdo, $acc, 'discord', 'Discord refused the connection (' . $code . '). Check the bot’s intents in the developer portal.', 900); $c['st'] = []; }
+            elseif (in_array($code, [4007, 4009], true)) { $c['st'] = array_intersect_key($c['st'], ['no_content' => 1]); }
+            bot_dc_save($pdo, $acc, $c['st']);
+            // A moment before reconnecting (longer if it keeps dropping at once).
+            $quick = microtime(true) - (float)($c['opened'] ?? 0) < 15;
+            try { $pdo->prepare("UPDATE bc_bot_relay SET next_at = GREATEST(COALESCE(next_at, NOW()), NOW() + INTERVAL ? SECOND) WHERE account_id=? AND platform='discord'")->execute([$quick ? 20 : 2, $acc]); } catch (Throwable $e) {}
+            unset($conns[$acc]);
+            unset($c);
+            continue;
+        }
+        if ($c['ready'] && microtime(true) - $c['saved'] > 20) { bot_dc_save($pdo, $acc, $c['st']); $c['saved'] = microtime(true); }
+        try { $pdo->prepare("UPDATE bc_bot_relay SET polled_at=NOW() WHERE account_id=? AND platform='discord'")->execute([$acc]); } catch (Throwable $e) {}
+        unset($c);
+    }
+    return $n;
+}
+function bot_dc_close(PDO $pdo, array $c): void {
+    try { bot_dc_save($pdo, (int)$c['row']['account_id'], $c['st']); } catch (Throwable $e) {}
+    $ws = $c['ws'];
+    ws_drop($ws);
+}
+
+// ── THE PUMP (called by the worker, the cron and open browsers) ──
+// Receives for every relay the server looks after, waits up to $wait
+// seconds for more (the worker's idle time), and sends what's queued.
+// The Gateway only runs inside the background worker ($gateway); anywhere
+// else Discord is caught up over REST.
+function bot_relay_pump(PDO $pdo, float $wait = 0, bool $gateway = false): int {
+    static $conns = [], $held = false, $lastCatch = [];
+    bot_relay_schema($pdo);
+    $n = 0;
+    if (!$held) {
+        try { $q = $pdo->query("SELECT GET_LOCK('bcbot_relay', 0)"); $held = $q && (int)$q->fetchColumn() === 1; } catch (Throwable $e) { $held = false; }
+        if (!$held) { if ($wait > 0) usleep((int)($wait * 1000000)); return bot_outbox_flush($pdo, 3); }
+        if (!$gateway) register_shutdown_function(function () use ($pdo) { try { $pdo->query("SELECT RELEASE_LOCK('bcbot_relay')"); } catch (Throwable $e) {} });
+    }
+    $end = microtime(true) + max(0, $wait);
+    do {
+        $rows = bot_relay_live_rows($pdo);
+        $tg = array_filter($rows, fn($r) => $r['platform'] === 'telegram');
+        $dc = array_values(array_filter($rows, fn($r) => $r['platform'] === 'discord'));
+        foreach ($tg as $r) {
+            if (!empty($r['next_at']) && strtotime((string)$r['next_at']) > time()) continue;
+            try { $n += bot_poll_telegram($pdo, $r, 0); } catch (Throwable $e) { error_log('[bot-relay] telegram poll: ' . get_class($e) . ' @' . $e->getLine()); }
+        }
+        if ($gateway) {
+            try { $n += bot_dc_pump($pdo, $conns, $dc); } catch (Throwable $e) { error_log('[bot-relay] gateway: ' . get_class($e) . ' @' . $e->getLine()); }
+        } else {
+            foreach ($dc as $r) {
+                $a = (int)$r['account_id'];
+                if (isset($lastCatch[$a]) && time() - $lastCatch[$a] < 20) continue;
+                $lastCatch[$a] = time();
+                $n += bot_dc_catch_up($pdo, $r, 8);
+            }
+        }
+        $n += bot_outbox_flush($pdo, 3);
+        if (microtime(true) >= $end) break;
+        // Idle: wait on the gateway sockets (or just wait) for a moment.
+        $socks = [];
+        foreach ($conns as $c) if (!empty($c['ws']['fp']) && !$c['ws']['closed']) $socks[] = $c['ws']['fp'];
+        $slice = min(1.0, max(0.05, $end - microtime(true)));
+        if ($socks) { $r = $socks; $w = null; $e = null; @stream_select($r, $w, $e, 0, (int)($slice * 1000000)); }
+        else usleep((int)($slice * 1000000));
+    } while (microtime(true) < $end);
+    return $n;
+}
+// The worker is ending: the relay lock is let go. Gateway connections end
+// with the request; their sessions were saved as they changed, so the next
+// worker resumes them.
+function bot_relay_release(PDO $pdo): void {
+    try { $pdo->query("SELECT RELEASE_LOCK('bcbot_relay')"); } catch (Throwable $e) {}
+}
+
+// What Settings and the browser app show for each platform's bot.
+//   on         the server answers it whenever no desktop app is
+//   host       a desktop app is receiving for it right now
+//   listening  the server is receiving for it right now (and did recently)
+function bot_relay_status(PDO $pdo, int $acc): array {
+    $out = [];
+    foreach (['telegram', 'discord'] as $pl) {
+        $r = bot_relay_row($pdo, $acc, $pl);
+        if (!$r) { $out[$pl] = ['on' => false]; continue; }
+        $on = (int)$r['on_flag'] === 1;
+        $host = !empty($r['host_live']);
+        $recentErr = !empty($r['last_error']) && !empty($r['error_at']) && strtotime((string)$r['error_at']) > time() - 1800;
+        $out[$pl] = ['on' => $on, 'host' => $host, 'bot_id' => (string)$r['bot_id'], 'bot_name' => (string)$r['bot_name'], 'username' => (string)$r['username'],
+                     'listening' => $on && !$host && $r['polled_ago'] !== null && (int)$r['polled_ago'] < 90,
+                     'error' => $on && $recentErr ? (string)$r['last_error'] : ''];
+    }
+    return $out;
+}
+// One quick pass for one account, from a browser's request, when no
+// background worker is running: Telegram is polled, Discord's known DMs are
+// caught up, and what's queued is sent. Never the gateway (that needs the
+// worker's long-lived request).
+function bot_relay_pump_account(PDO $pdo, int $acc): int {
+    $got = false;
+    try { $q = $pdo->query("SELECT GET_LOCK('bcbot_relay', 0)"); $got = $q && (int)$q->fetchColumn() === 1; } catch (Throwable $e) {}
+    if (!$got) return 0;
+    $n = 0;
+    try {
+        foreach (bot_relay_live_rows($pdo) as $r) {
+            if ((int)$r['account_id'] !== $acc) continue;
+            if ($r['platform'] === 'telegram') {
+                if (empty($r['next_at']) || strtotime((string)$r['next_at']) <= time()) $n += bot_poll_telegram($pdo, $r, 0);
+            } elseif (empty($r['polled_at']) || strtotime((string)$r['polled_at']) < time() - 20) {
+                $n += bot_dc_catch_up($pdo, $r, 8);
+                $pdo->prepare("UPDATE bc_bot_relay SET polled_at=NOW() WHERE account_id=? AND platform='discord'")->execute([$acc]);
+            }
+        }
+    } finally {
+        try { $pdo->query("SELECT RELEASE_LOCK('bcbot_relay')"); } catch (Throwable $e) {}
+    }
+    return $n;
+}
+
+// ── REPLYING ──────────────────────────────────────────────────
+function bot_job_claim(PDO $pdo): ?array {
+    try {
+        bot_relay_schema($pdo);
+        $q = $pdo->query("SELECT account_id, conv_id FROM bc_bot_jobs WHERE due_at <= NOW() AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL 3 MINUTE) ORDER BY due_at LIMIT 1");
+        $j = $q ? $q->fetch() : null;
+        if (!$j) return null;
+        $c = $pdo->prepare("UPDATE bc_bot_jobs SET claimed_at=NOW() WHERE account_id=? AND conv_id=? AND due_at <= NOW() AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL 3 MINUTE)");
+        $c->execute([(int)$j['account_id'], (string)$j['conv_id']]);
+        return $c->rowCount() === 1 ? ['acc' => (int)$j['account_id'], 'conv' => (string)$j['conv_id']] : null;
+    } catch (Throwable $e) { return null; }
+}
+function bot_job_tick(PDO $pdo, int $max = 1): int {
+    $ran = 0;
+    while ($ran < $max && ($j = bot_job_claim($pdo))) { bot_job_run($pdo, $j['acc'], $j['conv']); $ran++; }
+    return $ran;
+}
+// Done with this conversation's job, unless a message came in after $upTo
+// (then it runs again after the agent's usual gap).
+function bot_job_done(PDO $pdo, int $acc, string $convId, int $upTo = 0, int $gap = 0): void {
+    if ($upTo > 0) {
+        $d = $pdo->prepare("DELETE FROM bc_bot_jobs WHERE account_id=? AND conv_id=?
+                              AND NOT EXISTS (SELECT 1 FROM bc_messages m WHERE m.account_id=? AND m.conv_id=? AND m.role='in' AND m.id>?)");
+        $d->execute([$acc, $convId, $acc, $convId, $upTo]);
+        if ($d->rowCount() === 0) $pdo->prepare("UPDATE bc_bot_jobs SET claimed_at=NULL, tries=0, due_at=GREATEST(due_at, NOW() + INTERVAL ? SECOND) WHERE account_id=? AND conv_id=?")->execute([max(1, $gap), $acc, $convId]);
+        return;
+    }
+    $pdo->prepare("DELETE FROM bc_bot_jobs WHERE account_id=? AND conv_id=?")->execute([$acc, $convId]);
+}
+function bot_job_later(PDO $pdo, int $acc, string $convId, int $sec, bool $countTry = false): void {
+    $pdo->prepare("UPDATE bc_bot_jobs SET due_at = NOW() + INTERVAL ? SECOND, claimed_at = NULL" . ($countTry ? ", tries = tries + 1" : "") . " WHERE account_id=? AND conv_id=?")
+        ->execute([max(1, $sec), $acc, $convId]);
+}
+function bot_agent_for(PDO $pdo, int $acc, array $conv): ?array {
+    if (!empty($conv['agent_id'])) {
+        $q = $pdo->prepare("SELECT * FROM bc_agents WHERE id=? AND account_id=?");
+        $q->execute([(int)$conv['agent_id'], $acc]);
+        $a = $q->fetch();
+        return ($a && (int)($a['active'] ?? 1) === 1) ? $a : null;     // a paused agent doesn't answer
+    }
+    $q = $pdo->prepare("SELECT * FROM bc_agents WHERE active=1 AND account_id=? ORDER BY id ASC LIMIT 1");
+    $q->execute([$acc]);
+    return $q->fetch() ?: null;
+}
+function bot_spam_state(PDO $pdo, int $acc, string $convId): array {
+    try {
+        $q = $pdo->prepare("SELECT spam_hits, GREATEST(0, TIMESTAMPDIFF(SECOND, NOW(), spam_until)) AS left_s FROM bc_bot_conv WHERE account_id=? AND conv_id=?");
+        $q->execute([$acc, $convId]);
+        if ($r = $q->fetch()) return ['hits' => (int)$r['spam_hits'], 'left' => (int)($r['left_s'] ?? 0)];
+    } catch (Throwable $e) {}
+    return ['hits' => 0, 'left' => 0];
+}
+// Writes and sends the agent's answer for one conversation. Every way out
+// answers, leaves it on purpose, or keeps the job for later (as
+// dm_offline_run does for direct chats).
+function bot_job_run(PDO $pdo, int $acc, string $convId): void {
+    $lastIn = 0;
+    $retry = function (string $why, int $cap = 300) use ($pdo, $acc, $convId) {
+        $n = 0;
+        try { $q = $pdo->prepare("SELECT tries FROM bc_bot_jobs WHERE account_id=? AND conv_id=?"); $q->execute([$acc, $convId]); $n = (int)$q->fetchColumn(); } catch (Throwable $e) {}
+        $bc = bot_conv_parse($convId);
+        if ($bc) bot_relay_error($pdo, $acc, $bc['platform'], $why . ($n + 1 < BOT_RELAY_MAX_TRIES ? ' Trying again shortly.' : ''), 0);
+        if ($n + 1 >= BOT_RELAY_MAX_TRIES) { bot_job_done($pdo, $acc, $convId); return; }
+        bot_job_later($pdo, $acc, $convId, min($cap, 30 * (2 ** min($n, 6))), true);
+    };
+    $lock = 'bcbot_reply_' . $acc . '_' . substr(md5($convId), 0, 16);
+    $got = false;
+    try { $q = $pdo->prepare("SELECT GET_LOCK(?, 5)"); $q->execute([$lock]); $got = (int)$q->fetchColumn() === 1; } catch (Throwable $e) { $got = true; }
+    if (!$got) { bot_job_later($pdo, $acc, $convId, 10); return; }
+    try {
+        $bc = bot_conv_parse($convId);
+        $cq = $pdo->prepare("SELECT * FROM bc_conversations WHERE id=? AND account_id=?");
+        $cq->execute([$convId, $acc]);
+        $conv = $cq->fetch();
+        if (!$bc || !$conv || (int)$conv['auto_reply'] !== 1) { bot_job_done($pdo, $acc, $convId); return; }
+        $agent = bot_agent_for($pdo, $acc, $conv);
+        if (!$agent) { bot_job_done($pdo, $acc, $convId); return; }
+        $lq = $pdo->prepare("SELECT COALESCE(MAX(id), 0) FROM bc_messages WHERE account_id=? AND conv_id=? AND role='in'");
+        $lq->execute([$acc, $convId]);
+        $lastIn = (int)$lq->fetchColumn();
+        if ($lastIn <= 0) { bot_job_done($pdo, $acc, $convId); return; }
+        // Already answered (by you, from any app, or an earlier run).
+        $aq = $pdo->prepare("SELECT 1 FROM bc_messages WHERE account_id=? AND conv_id=? AND role IN ('out','bot') AND id>? LIMIT 1");
+        $aq->execute([$acc, $convId, $lastIn]);
+        if ($aq->fetchColumn()) { bot_job_done($pdo, $acc, $convId, $lastIn); return; }
+        $ans = $pdo->prepare("SELECT answered_in FROM bc_bot_conv WHERE account_id=? AND conv_id=?");
+        $ans->execute([$acc, $convId]);
+        if ((int)$ans->fetchColumn() >= $lastIn) { bot_job_done($pdo, $acc, $convId, $lastIn); return; }
+        // Its earlier reply is still going out: answer once it has.
+        $ob = $pdo->prepare("SELECT 1 FROM bc_bot_outbox WHERE account_id=? AND conv_id=? AND sent_at IS NULL AND failed=0 LIMIT 1");
+        $ob->execute([$acc, $convId]);
+        if ($ob->fetchColumn()) { bot_job_later($pdo, $acc, $convId, 6); return; }
+        // Its reply hours; a spam cooldown.
+        $closed = null;
+        try { $closed = dm_schedule_closed($pdo, $acc, $agent); } catch (Throwable $e) {}
+        if ($closed) {
+            if (($closed['mode'] ?? '') === 'queue' && (int)$closed['reopen_in'] > 0) { bot_job_later($pdo, $acc, $convId, (int)$closed['reopen_in'] + 5); return; }
+            bot_job_done($pdo, $acc, $convId, $lastIn); return;
+        }
+        if ((int)($agent['spam_throttle'] ?? 1) === 1 && bot_spam_state($pdo, $acc, $convId)['left'] > 0) { bot_job_done($pdo, $acc, $convId, $lastIn); return; }
+        if (!dm_ai_llm($pdo, $acc, $agent)) { $retry('No AI key is set up for your account.', 600); return; }
+        $token = bot_token($pdo, $acc, $bc['platform']);
+        if ($token === '') { bot_job_done($pdo, $acc, $convId); return; }
+        bot_platform_typing($bc['platform'], $token, $bc['chat']);
+        $recons = 0;
+        try { $r0 = $pdo->prepare("SELECT recons FROM bc_bot_jobs WHERE account_id=? AND conv_id=?"); $r0->execute([$acc, $convId]); $recons = (int)$r0->fetchColumn(); } catch (Throwable $e) {}
+        $out = shop_reply_core($pdo, $acc, $convId, $agent, ['last_in' => $lastIn, 'reconsider' => $recons < 3], bot_reply_hooks($pdo, $acc, $convId, $agent));
+        $skip = (string)($out['skip'] ?? '');
+        if ($skip === 'reconsider') {
+            try { $pdo->prepare("UPDATE bc_bot_jobs SET recons = recons + 1 WHERE account_id=? AND conv_id=?")->execute([$acc, $convId]); } catch (Throwable $e) {}
+            bot_job_later($pdo, $acc, $convId, 2);
+            return;
+        }
+        if ($skip === 'off_hours' && ($out['mode'] ?? '') === 'queue' && (int)($out['reopen_in'] ?? 0) > 0) { bot_job_later($pdo, $acc, $convId, (int)$out['reopen_in'] + 5); return; }
+        if (!empty($out['error'])) {
+            $code = (string)($out['code'] ?? '');
+            if ($code === 'llm_failed') $retry((string)$out['error']);
+            elseif ($code === 'no_key') $retry((string)$out['error'], 600);
+            else { bot_relay_error($pdo, $acc, $bc['platform'], (string)$out['error'], 0); bot_job_done($pdo, $acc, $convId, $lastIn); }
+            return;
+        }
+        if (empty($out['parts'])) {
+            if ($skip === 'empty' || $skip === '') { $retry('The agent wrote an empty reply.', 60); return; }
+            bot_job_done($pdo, $acc, $convId, $lastIn);          // decided on purpose
+            return;
+        }
+        try { $out['parts'] = dm_imperf_parts($out['parts'], $agent); } catch (Throwable $e) {}
+        // Queued first, then sent from the queue: cut off half way, the rest
+        // still goes out, in order, and nothing is written twice.
+        bot_outbox_add($pdo, $acc, $convId, $out['parts'], [], 'reply');
+        $pdo->prepare("INSERT INTO bc_bot_conv (account_id, conv_id, answered_in) VALUES (?,?,?) ON DUPLICATE KEY UPDATE answered_in=GREATEST(answered_in, VALUES(answered_in))")
+            ->execute([$acc, $convId, $lastIn]);
+        try { $pdo->prepare("UPDATE bc_bot_jobs SET recons=0 WHERE account_id=? AND conv_id=?")->execute([$acc, $convId]); } catch (Throwable $e) {}
+        bot_outbox_flush($pdo, 1, $acc, $convId, $agent);
+        bot_relay_error($pdo, $acc, $bc['platform'], null);
+        $gLo = max(0, min(60, (int)($agent['msg_gap_min'] ?? 1))); $gHi = max($gLo, (int)($agent['msg_gap_max'] ?? 4));
+        bot_job_done($pdo, $acc, $convId, $lastIn, mt_rand($gLo, min(60, $gHi)));
+    } catch (Throwable $e) {
+        error_log('[bot-relay] reply ' . get_class($e) . ' @' . $e->getLine());
+        try { pdo_ping($pdo); $retry('Something went wrong writing the reply (' . get_class($e) . ').'); } catch (Throwable $e2) {}
+    } finally {
+        try { $pdo->prepare("SELECT RELEASE_LOCK(?)")->execute([$lock]); } catch (Throwable $e) {}
+    }
+}
+// What differs for a bot chat inside shop_reply_core.
+function bot_reply_hooks(PDO $pdo, int $acc, string $convId, array $agent): array {
+    return [
+        'live_facts' => fn() => dm_shop_live_facts($pdo, $acc, $convId, 0),
+        'spam_hits'  => fn() => bot_spam_state($pdo, $acc, $convId)['hits'],
+        'spam_hit'   => function (string $why) use ($pdo, $acc, $convId, $agent) {
+            $base = max(5, min(1800, (int)($agent['spam_cooldown_sec'] ?? 60) ?: 60));
+            $hits = bot_spam_state($pdo, $acc, $convId)['hits'] + 1;
+            $sec = (int)min(1800, $base * (2 ** max(0, min(10, $hits - 1))));
+            $pdo->prepare("INSERT INTO bc_bot_conv (account_id, conv_id, spam_hits, spam_until, spam_reason) VALUES (?,?,?, NOW() + INTERVAL ? SECOND, ?)
+                           ON DUPLICATE KEY UPDATE spam_hits=VALUES(spam_hits), spam_until=VALUES(spam_until), spam_reason=VALUES(spam_reason)")
+                ->execute([$acc, $convId, $hits, $sec, mb_substr($why, 0, 200)]);
+            return $sec;
+        },
+        'spam_clear' => function () use ($pdo, $acc, $convId) {
+            try { $pdo->prepare("UPDATE bc_bot_conv SET spam_hits=0, spam_until=NULL, spam_reason=NULL WHERE account_id=? AND conv_id=? AND (spam_hits<>0 OR spam_until IS NOT NULL)")->execute([$acc, $convId]); } catch (Throwable $e) {}
+        },
+        // ai_reply has already switched the conversation's auto-reply off.
+        'post_sale_stop' => function () {},
+        'escalated_now' => function () use ($pdo, $acc, $convId) {
+            $q = $pdo->prepare("SELECT escalation FROM bc_end_users WHERE account_id=? AND conv_id=?");
+            $q->execute([$acc, $convId]);
+            $e = json_decode((string)($q->fetchColumn() ?: ''), true);
+            return is_array($e) && ($e['status'] ?? '') === 'pending';
+        },
+        'newer_in' => function (int $lastIn) use ($pdo, $acc, $convId) {
+            $q = $pdo->prepare("SELECT 1 FROM bc_messages WHERE account_id=? AND conv_id=? AND role='in' AND id>? LIMIT 1");
+            $q->execute([$acc, $convId, $lastIn]);
+            return (bool)$q->fetchColumn();
+        },
+        'stand_down' => function () use ($pdo, $acc, $convId) { bot_stand_down($pdo, $acc, $convId); },
+    ];
+}
+// Stop After Sale on a bot chat: the agent comes off it, as the app does.
+function bot_stand_down(PDO $pdo, int $acc, string $convId): void {
+    try { $pdo->prepare("UPDATE bc_conversations SET auto_reply=0 WHERE id=? AND account_id=?")->execute([$convId, $acc]); } catch (Throwable $e) {}
+    try { $pdo->prepare("DELETE FROM bc_bot_jobs WHERE account_id=? AND conv_id=?")->execute([$acc, $convId]); } catch (Throwable $e) {}
+}
+
+// ── SENDING ───────────────────────────────────────────────────
+function bot_platform_typing(string $platform, string $token, string $chat): void {
+    try {
+        if ($platform === 'telegram') tg_api($token, 'sendChatAction', ['chat_id' => $chat, 'action' => 'typing'], 8);
+        else dc_api($token, 'POST', '/channels/' . $chat . '/typing', new stdClass(), 8);
+    } catch (Throwable $e) {}
+}
+// Sends one text (split to the platform's limit). Returns
+// ['ok' => bool, 'ids' => [platform ids], 'error' => …, 'fatal' => bool].
+function bot_platform_send(string $platform, string $token, string $chat, string $text, string $replyTo = ''): array {
+    $limit = $platform === 'telegram' ? 4000 : 1900;
+    $chunks = [];
+    $rest = $text;
+    while (mb_strlen($rest) > $limit) {
+        $cut = mb_strrpos(mb_substr($rest, 0, $limit), "\n");
+        if ($cut === false || $cut < $limit / 2) $cut = mb_strrpos(mb_substr($rest, 0, $limit), ' ');
+        if ($cut === false || $cut < $limit / 2) $cut = $limit;
+        $chunks[] = trim(mb_substr($rest, 0, $cut));
+        $rest = trim(mb_substr($rest, $cut));
+    }
+    if ($rest !== '') $chunks[] = $rest;
+    $ids = [];
+    foreach ($chunks as $i => $c) {
+        if ($platform === 'telegram') {
+            $p = ['chat_id' => $chat, 'text' => $c];
+            if ($replyTo !== '' && $i === 0) $p['reply_parameters'] = ['message_id' => (int)$replyTo, 'allow_sending_without_reply' => true];
+            $r = tg_api($token, 'sendMessage', $p, 20);
+            if (!$r['ok']) return ['ok' => false, 'ids' => $ids, 'error' => $r['error'], 'retry_after' => $r['retry_after'] ?? 0,
+                                   'fatal' => in_array((int)$r['code'], [400, 401, 403], true)];
+            $ids[] = (string)($r['result']['message_id'] ?? '');
+        } else {
+            $p = ['content' => $c];
+            if ($replyTo !== '' && $i === 0) $p['message_reference'] = ['message_id' => $replyTo, 'fail_if_not_exists' => false];
+            $r = dc_api($token, 'POST', '/channels/' . $chat . '/messages', $p, 20);
+            if (!$r['ok']) return ['ok' => false, 'ids' => $ids, 'error' => $r['error'], 'retry_after' => $r['retry_after'] ?? 0,
+                                   'fatal' => in_array((int)$r['code'], [400, 401, 403, 404], true)];
+            $ids[] = (string)($r['result']['id'] ?? '');
+        }
+    }
+    return ['ok' => true, 'ids' => $ids];
+}
+// A message the agent sent, in the conversation's history (as the app
+// saves its own bubbles: role 'bot', the agent's name, the platform id).
+function bot_store_sent(PDO $pdo, int $acc, string $convId, string $text, string $uid, string $agentName): void {
+    $mc = bc_msg_cols($pdo);
+    $cols = ['conv_id', 'role', 'content', 'media_type', 'media_url', 'ts', 'msg_uid', 'account_id'];
+    $vals = [$convId, 'bot', $text, '', '', date('H:i'), $uid !== '' ? $uid : substr(md5($convId . '|bot|' . $text . '|' . microtime(true)), 0, 32), $acc];
+    if (isset($mc['agent_name']) && $agentName !== '') { $cols[] = 'agent_name'; $vals[] = mb_substr($agentName, 0, 100); }
+    try { $pdo->prepare("INSERT INTO bc_messages (" . implode(',', $cols) . ") VALUES (" . implode(',', array_fill(0, count($cols), '?')) . ")")->execute($vals); }
+    catch (PDOException $e) { if ($e->getCode() != '23000') throw $e; }
+    $pdo->prepare("UPDATE bc_conversations SET last_msg=?, last_t=?, updated_at=NOW() WHERE id=? AND account_id=?")
+        ->execute([mb_substr($text, 0, 2000), date('H:i'), $convId, $acc]);
+}
+function bot_outbox_add(PDO $pdo, int $acc, string $convId, array $texts, array $done = [], string $kind = ''): void {
+    bot_relay_schema($pdo);
+    $texts = array_values(array_filter(array_map(fn($x) => trim((string)$x), $texts), 'strlen'));
+    if (!$texts) { if ($done) bot_after_delivery($pdo, $acc, $convId, $done); return; }
+    $grp = bin2hex(random_bytes(6));
+    $ins = $pdo->prepare("INSERT INTO bc_bot_outbox (account_id, conv_id, grp, kind, body, done) VALUES (?,?,?,?,?,?)");
+    foreach ($texts as $i => $t) $ins->execute([$acc, $convId, $grp, $kind, mb_substr($t, 0, 12000), $i === count($texts) - 1 && $done ? json_encode($done) : null]);
+}
+// Sends what's queued, oldest first per conversation. With $agent, each
+// part is "typed" first at the agent's speed (DM_AI._typingMs), as the
+// app does. Returns messages sent.
+function bot_outbox_flush(PDO $pdo, int $maxConvs = 3, ?int $onlyAcc = null, ?string $onlyConv = null, ?array $agent = null): int {
+    $sent = 0;
+    try {
+        bot_relay_schema($pdo);
+        if ($onlyAcc !== null) $convs = [['account_id' => $onlyAcc, 'conv_id' => $onlyConv]];
+        else {
+            $q = $pdo->query("SELECT account_id, conv_id FROM bc_bot_outbox WHERE sent_at IS NULL AND failed=0 AND next_at <= NOW() GROUP BY account_id, conv_id ORDER BY MIN(id) LIMIT " . (int)$maxConvs);
+            $convs = $q ? $q->fetchAll() : [];
+        }
+        foreach ($convs as $cv) {
+            $acc = (int)$cv['account_id']; $convId = (string)$cv['conv_id'];
+            $bc = bot_conv_parse($convId);
+            if (!$bc) continue;
+            $lock = 'bcbot_send_' . $acc . '_' . substr(md5($convId), 0, 16);
+            $lk = $pdo->prepare("SELECT GET_LOCK(?, 0)"); $lk->execute([$lock]);
+            if ((int)$lk->fetchColumn() !== 1) continue;
+            try {
+                $token = bot_token($pdo, $acc, $bc['platform']);
+                if ($token === '') continue;
+                $agName = (string)($agent['name'] ?? '');
+                if ($agName === '') { $an = $pdo->prepare("SELECT agent FROM bc_conversations WHERE id=? AND account_id=?"); $an->execute([$convId, $acc]); $agName = (string)($an->fetchColumn() ?: ''); }
+                $rq = $pdo->prepare("SELECT * FROM bc_bot_outbox WHERE account_id=? AND conv_id=? AND sent_at IS NULL AND failed=0 ORDER BY id LIMIT 20");
+                $rq->execute([$acc, $convId]);
+                foreach ($rq->fetchAll() as $i => $r) {
+                    if (strtotime((string)$r['next_at']) > time()) break;      // waiting on a retry
+                    $body = (string)$r['body'];
+                    if ($agent) {
+                        $cps = max(10, (int)($agent['wpm'] ?? 75)) * 5 / 60;
+                        $raw = mb_strlen($body) / $cps * 1000;
+                        $ms = $i > 0 ? (int)max(1200, min(9000, round($raw * 0.75))) : (int)max(1200, min(20000, round($raw)));
+                        try { $ms += dm_hesitation_ms($body, $agent); } catch (Throwable $e) {}
+                        while ($ms > 0) { bot_platform_typing($bc['platform'], $token, $bc['chat']); $step = min($ms, 4500); usleep($step * 1000); $ms -= $step; @set_time_limit(120); }
+                    }
+                    $res = bot_platform_send($bc['platform'], $token, $bc['chat'], $body);
+                    if (!$res['ok']) {
+                        $tries = (int)$r['tries'] + 1;
+                        $fatal = !empty($res['fatal']) || $tries >= 8;
+                        $pdo->prepare("UPDATE bc_bot_outbox SET tries=?, failed=?, next_at=NOW() + INTERVAL ? SECOND WHERE id=?")
+                            ->execute([$tries, $fatal ? 1 : 0, max((int)($res['retry_after'] ?? 0), min(600, 10 * (2 ** min(6, $tries)))), (int)$r['id']]);
+                        bot_relay_error($pdo, $acc, $bc['platform'], 'A message couldn’t be sent: ' . $res['error'] . ($fatal ? '' : ' Trying again shortly.'), 0);
+                        if ($fatal) {
+                            // Stored as undelivered so it shows in the chat with its error.
+                            try { bot_store_sent($pdo, $acc, $convId, $body, '', $agName); $pdo->prepare("UPDATE bc_messages SET send_failed=1 WHERE account_id=? AND conv_id=? AND role='bot' ORDER BY id DESC LIMIT 1")->execute([$acc, $convId]); } catch (Throwable $e) {}
+                            if (!empty($r['done'])) { $d = json_decode((string)$r['done'], true); if (is_array($d)) bot_after_delivery($pdo, $acc, $convId, $d); }
+                            continue;
+                        }
+                        break;
+                    }
+                    $pdo->prepare("UPDATE bc_bot_outbox SET sent_at=NOW() WHERE id=?")->execute([(int)$r['id']]);
+                    $pfx = $bc['platform'] === 'telegram' ? 'tg:' : 'dc:';
+                    bot_store_sent($pdo, $acc, $convId, $body, ($res['ids'][0] ?? '') !== '' ? $pfx . $bc['chat'] . ':' . $res['ids'][0] : '', $agName);
+                    $sent++;
+                    if (!empty($r['done'])) { $d = json_decode((string)$r['done'], true); if (is_array($d)) bot_after_delivery($pdo, $acc, $convId, $d); }
+                }
+            } finally {
+                try { $pdo->prepare("SELECT RELEASE_LOCK(?)")->execute([$lock]); } catch (Throwable $e) {}
+            }
+        }
+        // Tidy: sent rows older than two days.
+        if (mt_rand(1, 50) === 1) $pdo->exec("DELETE FROM bc_bot_outbox WHERE (sent_at IS NOT NULL OR failed=1) AND created_at < NOW() - INTERVAL 2 DAY");
+    } catch (Throwable $e) { error_log('[bot-relay] outbox: ' . get_class($e) . ' @' . $e->getLine()); }
+    return $sent;
+}
+// After a payment delivery has gone out (dm_shop_outbox_after, for bots).
+function bot_after_delivery(PDO $pdo, int $acc, string $convId, array $done): void {
+    foreach ((array)($done['tx_ids'] ?? []) as $tx) { try { confirm_delivery_for_transaction($pdo, $acc, (int)$tx); } catch (Throwable $e) {} }
+    $inv = (string)($done['invoice_id'] ?? '');
+    if ($inv !== '') {
+        try {
+            dm_shop_inv_mutate($pdo, $acc, function (array &$list) use ($inv, $done) {
+                foreach ($list as &$r) if (is_array($r) && (string)($r['id'] ?? '') === $inv) {
+                    if (!empty($done['confirm_msg'])) { $r['customer_confirmed_msg_sent'] = true; $r['customer_confirmed_msg_at'] = time(); }
+                    if (!empty($done['delivered'])) { $r['delivered'] = true; $r['delivered_at'] = $r['delivered_at'] ?? time(); }
+                    if (!empty($done['manual'])) $r['manual_msg_sent'] = true;
+                }
+                unset($r);
+            });
+            dm_shop_bump_rev($pdo, $acc);
+        } catch (Throwable $e) {}
+    }
+    if (!empty($done['stand_down'])) bot_stand_down($pdo, $acc, $convId);
+    // Post-sale setup: the agent writes first, with the delivery in view.
+    if (!empty($done['kickoff'])) {
+        try {
+            $cq = $pdo->prepare("SELECT * FROM bc_conversations WHERE id=? AND account_id=?");
+            $cq->execute([$convId, $acc]);
+            $conv = $cq->fetch();
+            $ag = $conv ? bot_agent_for($pdo, $acc, $conv) : null;
+            if ($ag) {
+                $r = shop_reply_core($pdo, $acc, $convId, $ag, ['kickoff' => true], bot_reply_hooks($pdo, $acc, $convId, $ag));
+                if (!empty($r['parts'])) {
+                    bot_outbox_add($pdo, $acc, $convId, $r['parts'], [], 'reply');
+                    bc_internal(function () use ($pdo, $acc, $convId) { bc_act_onboarding($pdo, $acc, ['conv_id' => $convId, 'op' => 'kickoff']); });
+                }
+            }
+        } catch (Throwable $e) { error_log('[bot-relay] setup kickoff failed: ' . get_class($e)); }
+    }
+}
+// A confirmed payment on a bot chat the server answered: the thank-you,
+// key, files and setup, sent from here (shop_fulfil_core, as direct chats).
+function bot_fulfil(PDO $pdo, int $acc, array $inv): void {
+    $convId = (string)($inv['conv_id'] ?? '');
+    $bc = bot_conv_parse($convId);
+    if (!$bc || bot_token($pdo, $acc, $bc['platform']) === '') return;
+    $lock = 'bcbot_reply_' . $acc . '_' . substr(md5($convId), 0, 16);
+    $got = false;
+    try { $q = $pdo->prepare("SELECT GET_LOCK(?, 30)"); $q->execute([$lock]); $got = (int)$q->fetchColumn() === 1; } catch (Throwable $e) { $got = true; }
+    if (!$got) return;
+    try {
+        // Queued already (going out, or gone and the stamp not written yet).
+        $ob = $pdo->prepare("SELECT 1 FROM bc_bot_outbox WHERE account_id=? AND conv_id=? AND kind='pay' AND failed=0 AND body<>'' AND done LIKE ? LIMIT 1");
+        $ob->execute([$acc, $convId, '%"invoice_id":"' . str_replace(['%', '_'], ['\\%', '\\_'], (string)$inv['id']) . '"%']);
+        if ($ob->fetchColumn()) return;
+        shop_fulfil_core($pdo, $acc, $inv, $convId,
+            function () use ($pdo, $acc, $convId) {
+                $cq = $pdo->prepare("SELECT * FROM bc_conversations WHERE id=? AND account_id=?");
+                $cq->execute([$convId, $acc]);
+                $conv = $cq->fetch();
+                return ($conv && (int)$conv['auto_reply'] === 1) ? bot_agent_for($pdo, $acc, $conv) : null;
+            },
+            function (array $texts, array $flags) use ($pdo, $acc, $convId) {
+                bot_outbox_add($pdo, $acc, $convId, array_map(fn($x) => $x['t'], $texts), $flags, 'pay');
+            });
+    } finally {
+        try { $pdo->prepare("SELECT RELEASE_LOCK(?)")->execute([$lock]); } catch (Throwable $e) {}
+    }
+    bot_outbox_flush($pdo, 1, $acc, $convId);
+}
+
+// Media for a send from the page (data: URL or a link) → [bytes, mime, name].
+function bot_media_bytes(string $url, string $name): ?array {
+    if (preg_match('#^data:([^;,]*)(;base64)?,(.*)$#s', $url, $m)) {
+        $b = !empty($m[2]) ? base64_decode($m[3], true) : rawurldecode($m[3]);
+        if ($b === false || strlen($b) > 50 * 1048576) return null;
+        return [$b, $m[1] ?: 'application/octet-stream', $name];
+    }
+    if (!preg_match('#^https?://#i', $url)) return null;
+    // Our own file links (read with this request's session), or a public
+    // address — never one inside the server's network (the address checked
+    // is the one connected to, and redirects aren't followed).
+    $own = strpos($url, bc_self_api_url() . '?') === 0;
+    $h = []; $pin = null;
+    if ($own) { if (session_id() !== '') $h[] = 'Cookie: ' . session_name() . '=' . session_id(); }
+    else {
+        $pin = bot_public_pin($url);
+        if (!$pin) return null;
+    }
+    if (session_id() !== '') @session_write_close();
+    $r = bot_http('GET', $url, null, $h, 60, $pin);
+    if ($r['code'] !== 200 || $r['raw'] === '' || strlen($r['raw']) > 50 * 1048576) return null;
+    if ($name === '') $name = basename((string)parse_url($url, PHP_URL_PATH)) ?: 'file';
+    return [$r['raw'], (string)($r['headers']['content-type'] ?? 'application/octet-stream'), $name];
+}
+// 'host:port:ip' for a URL whose host resolves only to public addresses
+// (for CURLOPT_RESOLVE), or null.
+function bot_public_pin(string $url): ?string {
+    $u = parse_url($url);
+    $host = strtolower(trim((string)($u['host'] ?? ''), '[]'));
+    if ($host === '' || $host === 'localhost') return null;
+    $port = (int)($u['port'] ?? ((strtolower((string)($u['scheme'] ?? 'http')) === 'https') ? 443 : 80));
+    $ips = filter_var($host, FILTER_VALIDATE_IP) ? [$host] : (@gethostbynamel($host) ?: []);
+    if (!$ips) return null;
+    foreach ($ips as $ip) if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) return null;
+    return $host . ':' . $port . ':' . $ips[0];
+}
+function bot_send_media(string $platform, string $token, string $chat, string $url, string $caption, string $kind, string $name, string $replyTo = ''): array {
+    $bin = bot_media_bytes($url, $name);
+    if (!$bin) return ['ok' => false, 'error' => 'The file couldn’t be read for sending.'];
+    [$bytes, $mime, $fname] = $bin;
+    if ($fname === '') $fname = 'file';
+    $tmp = tempnam(sys_get_temp_dir(), 'bcm');
+    file_put_contents($tmp, $bytes);
+    try {
+        $file = new CURLFile($tmp, $mime, $fname);
+        if ($platform === 'telegram') {
+            $map = ['photo' => ['sendPhoto', 'photo'], 'video' => ['sendVideo', 'video'], 'audio' => ['sendAudio', 'audio'], 'voice' => ['sendVoice', 'voice'], 'animation' => ['sendAnimation', 'animation'], 'gif' => ['sendAnimation', 'animation']];
+            [$method, $field] = $map[$kind] ?? ['sendDocument', 'document'];
+            $p = ['chat_id' => $chat, $field => $file];
+            if ($caption !== '') $p['caption'] = mb_substr($caption, 0, 1000);
+            if ($replyTo !== '') $p['reply_parameters'] = json_encode(['message_id' => (int)$replyTo, 'allow_sending_without_reply' => true]);
+            $r = tg_api($token, $method, $p, 120, true);
+            if (!$r['ok'] && $method === 'sendPhoto') { unset($p['photo']); $p['document'] = new CURLFile($tmp, $mime, $fname); $r = tg_api($token, 'sendDocument', $p, 120, true); }
+            return $r['ok'] ? ['ok' => true, 'id' => (string)($r['result']['message_id'] ?? '')] : ['ok' => false, 'error' => $r['error']];
+        }
+        $pj = ['content' => mb_substr($caption, 0, 1900), 'attachments' => [['id' => 0, 'filename' => $fname]]];
+        if ($replyTo !== '') $pj['message_reference'] = ['message_id' => $replyTo, 'fail_if_not_exists' => false];
+        $r = dc_api($token, 'POST', '/channels/' . $chat . '/messages', ['__multipart' => ['payload_json' => json_encode($pj), 'files[0]' => $file]], 120);
+        return $r['ok'] ? ['ok' => true, 'id' => (string)($r['result']['id'] ?? '')] : ['ok' => false, 'error' => $r['error']];
+    } finally { @unlink($tmp); }
 }
 
 // ── PUBLIC CONTACT PAGE (api.php?u=<username>) ──────────────
@@ -16575,7 +17986,10 @@ GHOSTTXT;
     case 'dm_ai_cron': {
         $key = (string)($_GET['key'] ?? $body['key'] ?? '');
         if (BC_DM_CRON_KEY === '' || !hash_equals(BC_DM_CRON_KEY, $key)) { http_response_code(403); err('Forbidden'); }
-        ok(['ran' => dm_offline_tick($pdo, 5)]);
+        $ran = dm_offline_tick($pdo, 5);
+        // Bots too, and a background worker to keep listening if they need one.
+        try { $ran += bot_relay_pump($pdo, 0); if (bot_relay_next($pdo) !== null) dm_worker_want(); } catch (Throwable $e) {}
+        ok(['ran' => $ran]);
     }
 
     // A browser closing: stop counting this account as present at once,
@@ -16611,6 +18025,218 @@ GHOSTTXT;
         // Reply first (the caller only needs to know it arrived), then work.
         dm_worker_detach(['worker' => $busy ? 'running' : 'started']);
         if (!$busy) dm_worker_run($pdo);
+        exit;
+    }
+
+    // ── BOT RELAY (see BOT RELAY) ────────────────────────────
+    // Status of the server-run bots, for Settings and the browser app.
+    case 'bot_relay_status': {
+        ok(['relays' => bot_relay_status($pdo, (int)$ACCOUNT_ID)]);
+    }
+    // Connect a Telegram bot / Discord bot to the server (browser, or the
+    // desktop app so its bot keeps answering once it's closed). The token is
+    // checked with the platform first and saved like any other credential.
+    case 'bot_relay_connect': {
+        $me = (int)$ACCOUNT_ID;
+        $pl = (string)($body['platform'] ?? '');
+        if (!in_array($pl, ['telegram', 'discord'], true)) err('platform must be telegram or discord');
+        $token = trim((string)($body['token'] ?? '')) ?: bot_token($pdo, $me, $pl);
+        $v = bot_verify($pl, $token);
+        if (!$v['ok']) err($v['error']);
+        $key = $pl === 'discord' ? 'dc_bot_token' : 'tg_bot_token';
+        $pdo->prepare("INSERT INTO bc_credentials (account_id, `key`, value) VALUES (?,?,?) ON DUPLICATE KEY UPDATE value=VALUES(value)")->execute([$me, $key, $token]);
+        $cur = bot_relay_row($pdo, $me, $pl);
+        $fresh = !$cur || (string)$cur['tok_hash'] !== bot_tok_hash($token) || (int)$cur['on_flag'] !== 1;
+        bot_relay_enable($pdo, $me, $pl, $token, $v);
+        // A bot connected anew starts from now, as the desktop app's first
+        // connect does — not with a backlog of old messages. Never while the
+        // desktop app is receiving for it (those are its messages).
+        if ($pl === 'telegram' && $fresh && !($cur && !empty($cur['host_live']))) {
+            try { tg_api($token, 'deleteWebhook', ['drop_pending_updates' => true], 15); } catch (Throwable $e) {}
+        }
+        dm_worker_want();
+        ok(['relays' => bot_relay_status($pdo, $me)]);
+    }
+    case 'bot_relay_disconnect': {
+        $me = (int)$ACCOUNT_ID;
+        $pl = (string)($body['platform'] ?? '');
+        if (!in_array($pl, ['telegram', 'discord'], true)) err('platform must be telegram or discord');
+        bot_relay_schema($pdo);
+        $pdo->prepare("UPDATE bc_bot_relay SET on_flag=0, dc_state=NULL WHERE account_id=? AND platform=?")->execute([$me, $pl]);
+        $pdo->prepare("DELETE FROM bc_bot_jobs WHERE account_id=? AND conv_id LIKE ?")->execute([$me, $pl . '\_%']);
+        ok(['relays' => bot_relay_status($pdo, $me)]);
+    }
+    // The desktop app, every ~30s while open: which bots it is receiving for
+    // itself right now. Those the server leaves alone; the moment it stops
+    // saying so (or bot_host_away), the server takes over.
+    case 'bot_host_ping': {
+        $me = (int)$ACCOUNT_ID;
+        bot_relay_schema($pdo);
+        foreach (['telegram', 'discord'] as $pl) {
+            $st = is_array($body[$pl] ?? null) ? $body[$pl] : ['connected' => !empty($body[$pl])];
+            if (!empty($st['connected'])) {
+                $token = bot_token($pdo, $me, $pl);
+                // A bot the desktop app runs keeps answering from the server
+                // once the app closes (unless you disconnect it).
+                if ($token !== '' && ($pl === 'discord' || empty($st['user_api']))) {
+                    $cur = bot_relay_row($pdo, $me, $pl);
+                    if (!$cur || (string)$cur['tok_hash'] !== bot_tok_hash($token) || (int)$cur['on_flag'] !== 1)
+                        bot_relay_enable($pdo, $me, $pl, $token, ['bot_id' => (string)($st['bot_id'] ?? ''), 'bot_name' => (string)($st['bot_name'] ?? ''), 'username' => ltrim((string)($st['username'] ?? ''), '@')]);
+                }
+                $pdo->prepare("UPDATE bc_bot_relay SET host_at=NOW() WHERE account_id=? AND platform=?")->execute([$me, $pl]);
+            } else {
+                $pdo->prepare("UPDATE bc_bot_relay SET host_at=NULL WHERE account_id=? AND platform=? AND host_at IS NOT NULL")->execute([$me, $pl]);
+            }
+        }
+        if (bot_relay_next($pdo) !== null) dm_worker_want();
+        ok(['relays' => bot_relay_status($pdo, $me)]);
+    }
+    case 'bot_host_away': {
+        try { bot_relay_schema($pdo); $pdo->prepare("UPDATE bc_bot_relay SET host_at=NULL WHERE account_id=?")->execute([(int)$ACCOUNT_ID]); } catch (Throwable $e) {}
+        dm_worker_want();
+        ok();
+    }
+    // The browser app's live view of bot chats the server is running: rows
+    // stored since `since` (a bc_messages id), with their conversations.
+    // `init`: just where to start from (the page has loaded the history).
+    case 'bot_relay_feed': {
+        $me = (int)$ACCOUNT_ID;
+        bot_relay_schema($pdo);
+        $init = !empty($body['init']) || (!isset($body['since']) && !isset($_GET['since']));
+        $since = max(0, (int)($body['since'] ?? $_GET['since'] ?? 0));
+        $live = array_values(array_filter(bot_relay_live_rows($pdo), fn($r) => (int)$r['account_id'] === $me));
+        // Nobody running the background worker (it couldn't be started, or
+        // just ended): this request does a quick pass for this account.
+        $workerOn = false;
+        try { $q = $pdo->query("SELECT IS_FREE_LOCK('bcdm_worker')"); $workerOn = $q && (string)$q->fetchColumn() === '0'; } catch (Throwable $e) {}
+        if (!$workerOn && $live) {
+            dm_worker_want();
+            try { bot_relay_pump_account($pdo, $me); } catch (Throwable $e) { error_log('[bot-relay] feed pass: ' . get_class($e)); }
+        }
+        $maxQ = $pdo->prepare("SELECT COALESCE(MAX(m.id), 0) FROM bc_messages m WHERE m.account_id=?");
+        $maxQ->execute([$me]);
+        $top = (int)$maxQ->fetchColumn();
+        $msgs = []; $convs = [];
+        if (!$init && $top > $since) {
+            $mq = $pdo->prepare("SELECT m.*, UNIX_TIMESTAMP(m.created_at) AS created_epoch FROM bc_messages m
+                                   JOIN bc_conversations c ON c.id = m.conv_id AND c.account_id = m.account_id
+                                  WHERE m.account_id=? AND m.id>? AND c.platform IN ('telegram','discord')
+                                  ORDER BY m.id ASC LIMIT 300");
+            $mq->execute([$me, $since]);
+            $ids = [];
+            foreach ($mq->fetchAll() as $r) {
+                $msgs[] = ['id' => (int)$r['id'], 'conv_id' => (string)$r['conv_id'], 'r' => $r['role'], 'c' => $r['content'], 't' => $r['ts'],
+                           'ts' => (int)($r['created_epoch'] ?? time()) * 1000, 'mt' => $r['media_type'] ?? '', 'mu' => $r['media_url'] ?? '',
+                           'uid' => (string)($r['msg_uid'] ?? ''), 'mn' => (string)($r['media_name'] ?? ''), 'agent' => (string)($r['agent_name'] ?? ''),
+                           'rt' => (string)($r['reply_to_uid'] ?? ''), 'rq' => !empty($r['reply_meta']) ? (json_decode((string)$r['reply_meta'], true) ?: null) : null,
+                           'err' => !empty($r['send_failed']) ? 'Not delivered' : null];
+                $ids[(string)$r['conv_id']] = true;
+                $top = max($since, (int)$r['id']);
+            }
+            if ($ids) {
+                $in = implode(',', array_fill(0, count($ids), '?'));
+                $cq = $pdo->prepare("SELECT c.*, UNIX_TIMESTAMP(c.updated_at) AS updated_ts, COALESCE(eu.is_blocked,0) AS is_blocked, COALESCE(eu.is_muted,0) AS is_muted
+                                       FROM bc_conversations c LEFT JOIN bc_end_users eu ON eu.conv_id = c.id AND eu.account_id = c.account_id
+                                      WHERE c.account_id=? AND c.id IN ($in)");
+                $cq->execute(array_merge([$me], array_keys($ids)));
+                $convs = $cq->fetchAll();
+            }
+        }
+        $due = false;
+        if (!$workerOn) {
+            try { $dq = $pdo->prepare("SELECT 1 FROM bc_bot_jobs WHERE account_id=? AND due_at <= NOW() AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL 3 MINUTE) LIMIT 1"); $dq->execute([$me]); $due = (bool)$dq->fetchColumn(); } catch (Throwable $e) {}
+        }
+        ok(['cursor' => $top, 'messages' => $msgs, 'conversations' => $convs, 'relays' => bot_relay_status($pdo, $me), 'due' => $due]);
+    }
+    // Runs a due bot reply now, in this request (browsers call it when the
+    // feed says one is waiting and no background worker is running).
+    case 'bot_relay_tick': {
+        @set_time_limit(300);
+        ignore_user_abort(true);
+        dm_shop_long($pdo);
+        $ran = 0;
+        try {
+            if ($j = bot_job_claim($pdo)) { bot_job_run($pdo, $j['acc'], $j['conv']); $ran++; }
+            $ran += bot_outbox_flush($pdo, 2);
+        } catch (Throwable $e) { error_log('[bot-relay] tick: ' . get_class($e)); }
+        ok(['ran' => $ran]);
+    }
+    // Sends from the page when there's no desktop app (the browser's
+    // BotBridge hands sendMessage / sendMedia / editMessage / deleteMessages
+    // / sendChatAction here). Answers in the desktop app's event shapes.
+    case 'bot_relay_send': {
+        $me = (int)$ACCOUNT_ID;
+        $pl = (string)($body['platform'] ?? '');
+        $chat = (string)($body['chatId'] ?? '');
+        $op = (string)($body['op'] ?? 'sendMessage');
+        $reqId = (string)($body['reqId'] ?? '');
+        if (!in_array($pl, ['telegram', 'discord'], true) || !preg_match('/^-?\d{1,24}$/', $chat)) err('Unknown chat');
+        own_conv($pdo, $me, $pl . '_' . $chat);
+        $token = bot_token($pdo, $me, $pl);
+        if ($token === '') err('No ' . ($pl === 'discord' ? 'Discord' : 'Telegram') . ' bot is connected.');
+        $pfx = $pl === 'telegram' ? 'tg:' : 'dc:';
+        if (session_id() !== '') @session_write_close();
+        if ($op === 'sendChatAction') { bot_platform_typing($pl, $token, $chat); ok(); }
+        if ($op === 'sendMessage') {
+            $text = (string)($body['text'] ?? '');
+            $r = bot_platform_send($pl, $token, $chat, $text, (string)($body['replyTo'] ?? ''));
+            if (!$r['ok']) ok(['event' => 'sendError', 'data' => ['platform' => $pl, 'chatId' => $chat, 'error' => (string)$r['error'], 'reqId' => $reqId, 'text' => $text]]);
+            $mid = (string)(end($r['ids']) ?: '');
+            ok(['event' => 'sendOk', 'data' => ['platform' => $pl, 'chatId' => $chat, 'kind' => 'text', 'messageId' => $mid, 'uid' => $mid !== '' ? $pfx . $chat . ':' . $mid : '', 'reqId' => $reqId, 'text' => $text]]);
+        }
+        if ($op === 'sendMedia') {
+            @set_time_limit(180);
+            $cap = (string)($body['caption'] ?? '');
+            $r = bot_send_media($pl, $token, $chat, (string)($body['mediaUrl'] ?? ''), $cap, (string)($body['mediaKind'] ?? 'document'), (string)($body['fileName'] ?? ''), (string)($body['replyTo'] ?? ''));
+            if (!$r['ok']) ok(['event' => 'sendError', 'data' => ['platform' => $pl, 'chatId' => $chat, 'error' => (string)$r['error'], 'reqId' => $reqId, 'text' => $cap]]);
+            ok(['event' => 'sendOk', 'data' => ['platform' => $pl, 'chatId' => $chat, 'kind' => 'media', 'messageId' => $r['id'], 'uid' => $r['id'] !== '' ? $pfx . $chat . ':' . $r['id'] : '', 'reqId' => $reqId, 'text' => $cap]]);
+        }
+        if ($op === 'editMessage') {
+            $mid = (string)($body['messageId'] ?? ''); $text = (string)($body['text'] ?? '');
+            $r = $pl === 'telegram' ? tg_api($token, 'editMessageText', ['chat_id' => $chat, 'message_id' => (int)$mid, 'text' => $text], 20)
+                                    : dc_api($token, 'PATCH', '/channels/' . $chat . '/messages/' . $mid, ['content' => $text], 20);
+            // Telegram: a captioned file is edited through its caption.
+            if (!$r['ok'] && $pl === 'telegram' && stripos((string)$r['error'], 'no text in the message') !== false) $r = tg_api($token, 'editMessageCaption', ['chat_id' => $chat, 'message_id' => (int)$mid, 'caption' => $text], 20);
+            ok(['event' => 'editResult', 'data' => ['platform' => $pl, 'chatId' => $chat, 'messageId' => $mid, 'reqId' => $reqId, 'ok' => $r['ok'], 'error' => $r['ok'] ? '' : (string)$r['error'], 'text' => $text]]);
+        }
+        if ($op === 'deleteMessages') {
+            $ids = array_values(array_unique(array_filter(array_map('strval', (array)($body['messageIds'] ?? [])), fn($x) => preg_match('/^\d{1,24}$/', $x))));
+            $done = []; $errMsg = '';
+            foreach ($ids as $id) {
+                $r = $pl === 'telegram' ? tg_api($token, 'deleteMessage', ['chat_id' => $chat, 'message_id' => (int)$id], 15)
+                                        : dc_api($token, 'DELETE', '/channels/' . $chat . '/messages/' . $id, null, 15);
+                if ($r['ok']) $done[] = $id; else $errMsg = (string)$r['error'];
+            }
+            ok(['event' => 'deleteResult', 'data' => ['platform' => $pl, 'chatId' => $chat, 'messageIds' => $done, 'requested' => $ids, 'reqId' => $reqId,
+                                                      'ok' => $errMsg === '' && count($done) > 0, 'error' => $errMsg]]);
+        }
+        err('Unsupported');
+    }
+    // A Telegram file the server received (the page shows it through here,
+    // so the bot token never reaches the browser).
+    case 'bot_relay_file': {
+        $me = (int)$ACCOUNT_ID;
+        $fid = (string)($_GET['f'] ?? '');
+        if (($_GET['p'] ?? '') !== 'telegram' || !preg_match('/^[A-Za-z0-9_-]{10,300}$/', $fid)) { http_response_code(404); err('Not found'); }
+        $token = bot_token($pdo, $me, 'telegram');
+        if ($token === '') { http_response_code(404); err('Not found'); }
+        if (session_id() !== '') @session_write_close();
+        $gf = tg_api($token, 'getFile', ['file_id' => $fid], 20);
+        $path = $gf['ok'] ? (string)($gf['result']['file_path'] ?? '') : '';
+        if ($path === '') { http_response_code(404); err('This file is no longer available from Telegram.'); }
+        $r = bot_http('GET', BC_TG_API . '/file/bot' . $token . '/' . $path, null, [], 90);
+        if ($r['code'] !== 200) { http_response_code(502); err('Telegram didn’t send the file.'); }
+        $name = preg_replace('/[\r\n"\\\\]/', '', (string)($_GET['n'] ?? '')) ?: basename($path);
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION) ?: pathinfo($path, PATHINFO_EXTENSION));
+        $types = ['jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif', 'mp4' => 'video/mp4', 'webm' => 'video/webm',
+                  'oga' => 'audio/ogg', 'ogg' => 'audio/ogg', 'mp3' => 'audio/mpeg', 'm4a' => 'audio/mp4', 'pdf' => 'application/pdf', 'txt' => 'text/plain'];
+        $ctype = $types[$ext] ?? 'application/octet-stream';
+        header('Content-Type: ' . $ctype);
+        header('X-Content-Type-Options: nosniff');
+        header('Content-Disposition: ' . (strpos($ctype, 'image/') === 0 || strpos($ctype, 'video/') === 0 || strpos($ctype, 'audio/') === 0 ? 'inline' : 'attachment') . '; filename="' . $name . '"');
+        header('Cache-Control: private, max-age=86400');
+        header('Content-Length: ' . strlen($r['raw']));
+        echo $r['raw'];
         exit;
     }
 
@@ -16651,7 +18277,7 @@ GHOSTTXT;
     }
     // Invoice rows on direct chats, for the Payments panel.
     case 'dm_shop_invoices': {
-        $rows = array_values(array_filter(dm_shop_invoices($pdo, (int)$ACCOUNT_ID), fn($r) => is_array($r) && dm_shop_is_conv((string)($r['conv_id'] ?? ''))));
+        $rows = array_values(array_filter(dm_shop_invoices($pdo, (int)$ACCOUNT_ID), fn($r) => shop_srv_inv($r)));
         // Nothing paid is ever left undelivered: a confirmed invoice whose
         // delivery never went out (a run cut off, a watch that lapsed, an
         // older build) is started again whenever your app loads this list.
@@ -16682,7 +18308,7 @@ GHOSTTXT;
         dm_worker_want();
         $hit = null;
         dm_shop_inv_mutate($pdo, $me, function (array &$list) use ($id, &$hit) {
-            foreach ($list as &$r) if (is_array($r) && (string)($r['id'] ?? '') === $id && dm_shop_is_conv((string)($r['conv_id'] ?? ''))) {
+            foreach ($list as &$r) if (is_array($r) && (string)($r['id'] ?? '') === $id && shop_srv_inv($r)) {
                 $st = (string)($r['status'] ?? '');
                 if ($st === 'pending' || (in_array($st, ['cancelled', 'expired'], true) && empty($r['wiped_at']))) {
                     $r['status'] = 'confirmed'; $r['confirmed_at'] = time(); $r['manual_confirm'] = true;
@@ -27554,4 +29180,4 @@ function call_claude(string $apiKey, string $model, string $sys, array $hist): s
         if (($b['type'] ?? '') === 'text') $out .= $b['text'];
     }
     return $out;
-}
+}
