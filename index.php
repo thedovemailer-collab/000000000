@@ -38,11 +38,11 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
   --ok: #30d158; --warn: #f5a524;
   --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
-  --w: 1080px; --r: 14px;
+  --w: 1080px; --r: 14px; --navh: 76px;
 }
 *, *::before, *::after { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 56px; -webkit-text-size-adjust: 100%; background: var(--b1); }
-body { margin: 0; color: var(--t1); font: 400 14.5px/1.55 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+html { scroll-behavior: smooth; scroll-padding-top: 0; -webkit-text-size-adjust: 100%; background: var(--b1); }
+body { margin: 0; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; color: var(--t1); font: 400 14.5px/1.55 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
 svg { display: block; }
 .wrap { width: min(var(--w), 100% - 40px); margin-inline: auto; }
@@ -64,12 +64,27 @@ svg { display: block; }
   animation: flow 9s ease-in-out infinite alternate; filter: drop-shadow(0 0 14px color-mix(in srgb, var(--fx1) 16%, transparent)); }
 @keyframes flow { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
 
-/* Nav */
-.nav { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%);
-  background: linear-gradient(180deg, rgba(2,11,16,.9), rgba(2,11,16,.72)); border-bottom: 1px solid var(--ln); }
-.nav .wrap { display: flex; align-items: center; gap: 24px; height: 56px; }
-.nav nav { display: flex; gap: 22px; margin-left: auto; font-size: 13px; color: var(--t2); }
-.nav nav a:hover { color: var(--t1); }
+/* Header: a floating glass bar. Mark + wordmark, section links in a
+   pill that follows the section in view, and the app button. */
+.nav { position: fixed; top: 0; left: 0; right: 0; z-index: 30; padding: 12px 0; pointer-events: none; }
+.nav .wrap { pointer-events: auto; position: relative; display: flex; align-items: center; gap: 16px; height: 52px; padding: 0 8px 0 12px;
+  border-radius: 16px; background: rgba(7,13,21,.62); border: 1px solid rgba(255,255,255,.08);
+  backdrop-filter: blur(20px) saturate(170%); -webkit-backdrop-filter: blur(20px) saturate(170%);
+  box-shadow: 0 12px 34px -16px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.06);
+  transition: background-color .3s ease, box-shadow .3s ease; }
+.nav.scrolled .wrap { background: rgba(7,13,21,.82); }
+.nav .wrap::before { content: ''; position: absolute; left: 18%; right: 18%; top: -1px; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fx2) 60%, transparent), transparent); opacity: .7; }
+.brand { display: inline-flex; align-items: center; gap: 10px; }
+.mark { width: 30px; height: 30px; flex: none; border-radius: 9px; display: grid; place-items: center;
+  background: linear-gradient(145deg, #0d2a33, #0b1a31); box-shadow: inset 0 0 0 1px rgba(255,255,255,.1), 0 6px 16px -8px color-mix(in srgb, var(--fx2) 70%, transparent); }
+.mark svg { width: 17px; height: 17px; }
+.links { display: flex; gap: 2px; margin-left: auto; padding: 3px; border-radius: 11px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05); }
+.links a { position: relative; height: 30px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 8px; font-size: 12.5px; color: var(--t2);
+  transition: color .15s ease, background-color .15s ease; }
+.links a:hover { color: var(--t1); background: rgba(255,255,255,.04); }
+.links a[aria-current="true"] { color: var(--t1); background: rgba(255,255,255,.075); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
+.nav .btn-s { margin-left: 4px; }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 16px; border-radius: 10px;
@@ -100,13 +115,13 @@ h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
 
 /* Each part of the page is its own screen: the next one only appears as
    you scroll (content centred in the space, a hairline between them). */
-.panel { position: relative; min-height: calc(100svh - 56px); display: flex; flex-direction: column; justify-content: center;
-  padding: clamp(48px, 6vw, 72px) 0; }
+.panel { position: relative; min-height: 100svh; display: flex; flex-direction: column; justify-content: center;
+  padding: calc(var(--navh) + 16px) 0 clamp(40px, 5vw, 64px); }
 .panel + .panel::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: min(var(--w), 100% - 40px); height: 1px;
   background: linear-gradient(90deg, transparent, var(--ln2), transparent); }
-.panel-hero { padding: 0; }
+.panel-hero { padding: var(--navh) 0 0; }
 .panel-hero .hero { flex: 1; display: flex; align-items: center; }
-.panel-end { min-height: calc(100svh - 56px - 76px); }
+.panel-end { min-height: calc(100svh - 132px); }
 /* Scrolling moves one section at a time: with a mouse or trackpad the
    script below glides to the next section; on touch screens the page
    settles on the nearest one. */
@@ -260,7 +275,9 @@ h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
 .lang-notes { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 16px; }
 
 /* AI providers */
-.ai3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+.ai3 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 18px; }
+.prov-in { border-color: color-mix(in srgb, var(--fx2) 30%, transparent); }
+.prov-in .mark { width: 24px; height: 24px; border-radius: 7px; } .prov-in .mark svg { width: 14px; height: 14px; }
 .prov { display: flex; align-items: center; gap: 11px; padding: 13px 14px; border-radius: 12px; border: 1px solid var(--ln);
   background: radial-gradient(200px circle at var(--mx, -40%) var(--my, -40%), rgba(125,211,252,.08), transparent 50%), var(--glass); }
 .prov svg { width: 24px; height: 24px; flex: none; }
@@ -272,21 +289,40 @@ h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
 .steps .tile { grid-column: auto; }
 .steps .tile::after { counter-increment: s; content: '0' counter(s); position: absolute; top: 16px; right: 18px; font: 700 11px 'Orbitron', var(--font); letter-spacing: .08em; color: rgba(255,255,255,.16); }
 
-/* Closing */
-.end { margin-top: 0; }
-.fee { margin-top: 14px; font-size: 11.5px; color: var(--t3); display: flex; align-items: center; gap: 6px; }
-.fee svg { width: 13px; height: 13px; color: var(--t3); }
-.end .box { text-align: center; padding: clamp(32px, 5vw, 52px) 22px; border-radius: 20px;
-  background: radial-gradient(ellipse 70% 120% at 50% 0%, color-mix(in srgb, var(--fx2) 18%, transparent), transparent 70%), var(--glass); border: 1px solid var(--ln2); }
-.end h2 { margin-top: 0; }
-.end .cta { justify-content: center; }
+/* Closing card: a lit panel with a gradient edge and a faint grid. */
+.finale { position: relative; border-radius: 24px; padding: 1px; overflow: hidden;
+  background: linear-gradient(160deg, rgba(255,255,255,.2), rgba(255,255,255,.04) 38%, rgba(255,255,255,.03) 62%, color-mix(in srgb, var(--fx2) 45%, transparent)); }
+.finale-in { position: relative; overflow: hidden; border-radius: 23px; text-align: center; padding: clamp(40px, 6vw, 68px) 24px clamp(34px, 5vw, 52px);
+  background: radial-gradient(ellipse 55% 70% at 50% -10%, color-mix(in srgb, var(--fx2) 22%, transparent), transparent 70%),
+              radial-gradient(ellipse 40% 60% at 85% 120%, color-mix(in srgb, var(--fx3) 18%, transparent), transparent 70%), rgba(8,13,22,.92); }
+.finale-in::before { content: ''; position: absolute; inset: 0; pointer-events: none;
+  background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px);
+  background-size: 36px 36px; -webkit-mask-image: radial-gradient(ellipse 60% 70% at 50% 30%, #000, transparent 75%); mask-image: radial-gradient(ellipse 60% 70% at 50% 30%, #000, transparent 75%); }
+.finale-in > * { position: relative; }
+.mark-lg { width: 46px; height: 46px; border-radius: 14px; margin: 0 auto 18px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12), 0 0 0 6px rgba(255,255,255,.025), 0 14px 34px -10px color-mix(in srgb, var(--fx2) 80%, transparent); }
+.mark-lg svg { width: 24px; height: 24px; }
+.finale h2 { margin: 0 0 8px; font-size: clamp(26px, 3.4vw, 38px); }
+.finale .sub { margin-inline: auto; }
+.finale .cta { justify-content: center; margin-top: 22px; }
+.points { list-style: none; margin: 26px 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; font-size: 12.5px; color: var(--t2); }
+.points li { display: inline-flex; align-items: center; gap: 7px; }
+.points svg { width: 15px; height: 15px; color: var(--fx1); }
+@media (max-width: 640px) { .points { flex-direction: column; align-items: flex-start; width: max-content; margin-left: auto; margin-right: auto; gap: 9px; } }
 
-footer { border-top: 1px solid var(--ln); }
-footer .note { width: 100%; text-align: center; font-size: 11px; color: var(--t3); opacity: .8; order: 9; }
-footer .wrap { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between; padding: 22px 0 30px; font-size: 12px; color: var(--t3); }
-footer .word { font-size: 12.5px; }
-footer nav { display: flex; gap: 18px; }
-footer a:hover { color: var(--t1); }
+/* Footer: links and the platforms on one line, the fine print below. */
+footer { position: relative; padding: 26px 0 28px; }
+footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: min(var(--w), 100% - 40px); height: 1px;
+  background: linear-gradient(90deg, transparent, var(--ln2), transparent); }
+.f-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; }
+.f-links { display: flex; flex-wrap: wrap; gap: 2px; margin-left: -10px; }
+.f-links a { padding: 6px 10px; border-radius: 8px; font-size: 12.5px; color: var(--t2); transition: color .15s, background-color .15s; }
+.f-links a:hover { color: var(--t1); background: rgba(255,255,255,.04); }
+.f-plat { display: flex; align-items: center; gap: 12px; color: var(--t3); }
+.f-plat svg { width: 16px; height: 16px; }
+.f-plat .sep { width: 1px; height: 14px; background: var(--ln2); }
+.f-bot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 20px; margin-top: 16px; padding-top: 16px;
+  border-top: 1px solid var(--ln); font-size: 11.5px; color: var(--t3); }
 
 /* Reveal */
 .rv { opacity: 0; transform: translateY(12px); transition: opacity .6s ease, transform .7s cubic-bezier(.16,1,.3,1); }
@@ -302,8 +338,11 @@ footer a:hover { color: var(--t1); }
   .lic, .flow { max-width: 460px; }
 }
 @media (max-width: 640px) {
-  .nav nav { display: none; }
+  .links { display: none; }
   .nav .btn-s { margin-left: auto; }
+  .nav .wrap { height: 48px; padding: 0 6px 0 10px; }
+  .f-top, .f-bot { justify-content: center; text-align: center; }
+  .f-links { margin-left: 0; justify-content: center; }
   .bento { gap: 8px; }
   .tile { padding: 15px 14px; }
   .tile.w3 { grid-column: span 2; }
@@ -349,6 +388,8 @@ footer a:hover { color: var(--t1); }
     <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
     <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+    <linearGradient id="mkg" x1="3" y1="4" x2="21" y2="20" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#5eead4"/><stop offset=".55" stop-color="#38bdf8"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
+    <symbol id="i-mark" viewBox="0 0 24 24"><path d="M6.5 5h11A3.5 3.5 0 0 1 21 8.5v6a3.5 3.5 0 0 1-3.5 3.5H12l-4.6 3.4c-.5.4-1.2 0-1.2-.6V18A3.5 3.5 0 0 1 3 14.5v-6A3.5 3.5 0 0 1 6.5 5z" fill="url(#mkg)"/><circle cx="9" cy="11.5" r="1.3" fill="#061831"/><circle cx="15" cy="11.5" r="1.3" fill="#061831"/></symbol>
     <symbol id="i-ghost" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a7 7 0 0 0-7 7v10.5l2.33-1.75L9.67 20.5 12 18.75l2.33 1.75 2.34-1.75L19 20.5V10a7 7 0 0 0-7-7z"/><circle cx="9.5" cy="10.5" r=".9" fill="currentColor"/><circle cx="14.5" cy="10.5" r=".9" fill="currentColor"/></symbol>
     <symbol id="i-term" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-5-6-5M12 19h8"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></symbol>
@@ -359,12 +400,16 @@ footer a:hover { color: var(--t1); }
 
 <header class="nav">
   <div class="wrap">
-    <a href="#top" class="word" aria-label="BotCommand">BotCommand</a>
-    <nav aria-label="Sections">
+    <a href="#top" class="brand" aria-label="BotCommand">
+      <span class="mark"><svg><use href="#i-mark"/></svg></span>
+      <span class="word">BotCommand</span>
+    </a>
+    <nav class="links" aria-label="Sections">
       <a href="#features">Features</a>
       <a href="#licensing">Licensing</a>
       <a href="#payments">Payments</a>
       <a href="#languages">Languages</a>
+      <a href="#ai">AI</a>
     </nav>
     <a class="btn btn-g btn-s" href="<?= $h($APP_URL) ?>"><?= $signedIn ? 'Open app' : 'Sign in' ?></a>
   </div>
@@ -431,6 +476,7 @@ footer a:hover { color: var(--t1); }
       </div>
       <span class="lbl">Your AI</span>
       <div class="logos">
+        <span class="logo"><svg><use href="#i-mark"/></svg> Built-in</span>
         <span class="logo"><svg><use href="#l-gemini"/></svg> Gemini</span>
         <span class="logo"><svg style="color:#e7eaf0"><use href="#l-openai"/></svg> OpenAI</span>
         <span class="logo"><svg><use href="#l-anthropic"/></svg> Claude</span>
@@ -590,9 +636,10 @@ footer a:hover { color: var(--t1); }
     <div class="wrap split">
       <div class="rv">
         <span class="eyebrow">AI</span>
-        <h2>Your choice of <em>AI provider.</em></h2>
-        <p class="sub">Connect your own Gemini, OpenAI or Claude key. Switch at any time.</p>
+        <h2>Your choice of <em>AI.</em></h2>
+        <p class="sub">Use the built-in AI with no setup, or connect your own Gemini, OpenAI or Claude key.</p>
         <div class="ai3">
+          <div class="prov prov-in"><span class="mark"><svg><use href="#i-mark"/></svg></span><div><b>Built-in</b><span>Ready to use</span></div></div>
           <div class="prov"><svg><use href="#l-gemini"/></svg><div><b>Gemini</b><span>Google</span></div></div>
           <div class="prov"><svg style="color:#e7eaf0"><use href="#l-openai"/></svg><div><b>GPT</b><span>OpenAI</span></div></div>
           <div class="prov"><svg><use href="#l-anthropic"/></svg><div><b>Claude</b><span>Anthropic</span></div></div>
@@ -624,15 +671,25 @@ footer a:hover { color: var(--t1); }
 
   <!-- ── CLOSING ── -->
   <section id="start" class="panel panel-end">
-  <div class="wrap end">
-    <div class="box rv">
-      <h2>Get started with <em>BotCommand.</em></h2>
-      <p class="sub" style="margin-inline:auto">Setup takes a few minutes.</p>
-      <div class="cta">
-        <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
-        <?php if ($DESKTOP_URL !== ''): ?>
-        <a class="btn btn-g" href="<?= $h($DESKTOP_URL) ?>"><svg><use href="#i-down"/></svg> Desktop app</a>
-        <?php endif; ?>
+  <div class="wrap">
+    <div class="finale rv">
+      <div class="finale-in">
+        <span class="mark mark-lg"><svg><use href="#i-mark"/></svg></span>
+        <h2>Get started with <em>BotCommand.</em></h2>
+        <p class="sub">Set up your first agent in a few minutes.</p>
+        <div class="cta">
+          <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
+          <?php if ($DESKTOP_URL !== ''): ?>
+          <a class="btn btn-g" href="<?= $h($DESKTOP_URL) ?>"><svg><use href="#i-down"/></svg> Desktop app</a>
+          <?php else: ?>
+          <a class="btn btn-g" href="#features">View features</a>
+          <?php endif; ?>
+        </div>
+        <ul class="points">
+          <li><svg><use href="#i-check"/></svg>Browser, desktop and mobile</li>
+          <li><svg><use href="#i-check"/></svg>Built-in or your own AI</li>
+          <li><svg><use href="#i-check"/></svg>Payments to your own wallet</li>
+        </ul>
       </div>
     </div>
   </div>
@@ -641,15 +698,24 @@ footer a:hover { color: var(--t1); }
 
 <footer>
   <div class="wrap">
-    <span class="word">BotCommand</span>
-    <nav aria-label="Footer">
-      <a href="#features">Features</a>
-      <a href="#licensing">Licensing</a>
-      <a href="#payments">Payments</a>
-      <a href="<?= $h($APP_URL) ?>"><?= $signedIn ? 'Open app' : 'Sign in' ?></a>
-    </nav>
-    <span>© <?= date('Y') ?> BotCommand</span>
-    <span class="note">Crypto payments are processed by CryptAPI, which charges a 1% fee per transaction.</span>
+    <div class="f-top">
+      <nav class="f-links" aria-label="Footer">
+        <a href="#features">Features</a>
+        <a href="#licensing">Licensing</a>
+        <a href="#payments">Payments</a>
+        <a href="#languages">Languages</a>
+        <a href="<?= $h($APP_URL) ?>"><?= $signedIn ? 'Open app' : 'Sign in' ?></a>
+      </nav>
+      <div class="f-plat" aria-label="Works with Telegram, Discord and direct chats">
+        <svg><use href="#i-tg"/></svg><svg><use href="#i-dc"/></svg><svg><use href="#i-lock"/></svg>
+        <span class="sep"></span>
+        <svg><use href="#l-gemini"/></svg><svg style="color:#c9ced8"><use href="#l-openai"/></svg><svg><use href="#l-anthropic"/></svg>
+      </div>
+    </div>
+    <div class="f-bot">
+      <span>© <?= date('Y') ?> BotCommand. All rights reserved.</span>
+      <span>Crypto payments are processed by CryptAPI (1% per transaction).</span>
+    </div>
   </div>
 </footer>
 
@@ -671,7 +737,7 @@ var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)')
 // edge, then the next gesture moves on.
 (function () {
   if (!matchMedia('(hover: hover) and (pointer: fine)').matches) return;
-  var panels = Array.prototype.slice.call(document.querySelectorAll('.panel')), NAV = 56;
+  var panels = Array.prototype.slice.call(document.querySelectorAll('.panel')), NAV = 0;
   var busy = false, last = 0;
   function tops() { return panels.map(function (p) { return p.offsetTop - NAV; }); }
   function current() {
@@ -717,6 +783,24 @@ var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)')
     if (!dir || !edgeFree(dir)) return;
     e.preventDefault(); if (!busy) go(current() + dir);
   });
+})();
+
+// Header: solid once the page moves, and the link of the section in view lit.
+(function () {
+  var nav = document.querySelector('.nav');
+  var onScroll = function () { nav.classList.toggle('scrolled', scrollY > 8); };
+  addEventListener('scroll', onScroll, { passive: true }); onScroll();
+  var links = {};
+  document.querySelectorAll('.links a').forEach(function (a) { links[a.getAttribute('href').slice(1)] = a; });
+  if (!('IntersectionObserver' in window)) return;
+  var io = new IntersectionObserver(function (es) {
+    es.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      Object.keys(links).forEach(function (k) { links[k].removeAttribute('aria-current'); });
+      if (links[e.target.id]) links[e.target.id].setAttribute('aria-current', 'true');
+    });
+  }, { rootMargin: '-45% 0px -45% 0px' });
+  document.querySelectorAll('.panel').forEach(function (s) { io.observe(s); });
 })();
 
 // Cards: a soft light that follows the pointer.
