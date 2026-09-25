@@ -224,7 +224,7 @@ html[data-glass="solid"] .bc-comp { background: color-mix(in srgb, var(--comp-ti
    without a hover, and text is a size a phone can read. */
 .ipc .bc-comp { margin-bottom: env(safe-area-inset-bottom); }
 @media (max-width: 560px) {
-  .ipc .bc-comp { width: calc(100% - 16px) !important; bottom: 8px !important; }
+  .ipc .bc-comp { width: calc(100% - 20px) !important; bottom: 10px !important; }
 }
 @media (pointer: coarse) {
   .bc-row { padding: 6px 7px; gap: 6px; }

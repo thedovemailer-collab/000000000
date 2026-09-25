@@ -630,6 +630,10 @@ html, body { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust:
   :root { --thread-pad-x: 10px; --thread-pad-y: 14px; }
   .ipc-thread[data-col] { --bub-max: 84%; }
 }
+/* A narrow chat column (a phone) drops the avatar beside your own bubbles,
+   as phone messaging apps do: it says nothing the bubble's side doesn't,
+   and the room goes to the message. The customer's avatar stays. */
+.ipc-thread[data-col="sm"] .brow-r > :first-child { display: none !important; }
 .main  { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; }
 .content { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 

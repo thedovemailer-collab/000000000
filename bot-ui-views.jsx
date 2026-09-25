@@ -2656,7 +2656,7 @@ const ContactListProfile = ({account, extra = null}) => {
   // same vertical line as the magnifier below; "Sign out" ends on the line
   // of the search text's right padding.
   const box = extra
-    ? { minHeight:28, margin:'2px 0 8px', padding:'0 0 0 11px' }
+    ? { minHeight:28, margin:'2px 0 8px', padding:'0 0 0 2px' }
     : { height:20, margin:'0 0 7px', padding:'0 4px 0 11px' };
   if (!account) return <div style={box} aria-hidden="true"/>;
   const name = String(account.display_name || account.username || account.email || '').trim();
@@ -2680,10 +2680,13 @@ const ContactListProfile = ({account, extra = null}) => {
         userSelect:'none',
       }}>
       {/* A touch screen has no hover to reveal Sign out: tapping the name does. */}
+      {/* On a phone (extra set) the name is the screen's title, like any
+          messaging app's list header. */}
       <span title={[name, email].filter(Boolean).join(' · ')} onClick={()=>setNear(n => !n)} style={{
         flex:'0 1 auto', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
-        fontSize:11.5, fontWeight:600, letterSpacing:'-0.005em', lineHeight:'20px',
-        color:'rgba(226,228,240,0.8)', cursor:'default',
+        fontSize: extra ? 17 : 11.5, fontWeight: extra ? 700 : 600,
+        letterSpacing: extra ? '-0.025em' : '-0.005em', lineHeight: extra ? '28px' : '20px',
+        color: extra ? 'var(--t1)' : 'rgba(226,228,240,0.8)', cursor:'default',
       }}>{name}</span>
       {extra && <span style={{flex:1}}/>}
       <button type="button" onClick={signOut}

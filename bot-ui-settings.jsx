@@ -2066,6 +2066,7 @@ const ensureSettingsPhoneStyles = () => {
   st.id = 'sset-phone-style';
   st.textContent = `
 .sset-sw-close { display: none !important; }
+.sset-top-title { display: none; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .sset-subpop, .sset-subpop[data-tall="1"], .sset-subpop[data-fit="1"] {
     left: 0 !important; right: 0 !important;
@@ -2073,7 +2074,7 @@ const ensureSettingsPhoneStyles = () => {
     bottom: calc(${SSET_PHONE_BAR}px + env(safe-area-inset-bottom)) !important;
     width: auto !important; height: auto !important; min-width: 0 !important; max-width: none !important;
     min-height: 0 !important; max-height: none !important;
-    transform: none !important; border-radius: 0 !important; box-shadow: none !important;
+    transform: none !important; border-radius: 0 !important; box-shadow: none !important; border: none !important;
     animation: sset-phone-in 200ms cubic-bezier(0.16,1,0.3,1) both !important; }
   .sset-subpop.sset-subpop-out { animation: sset-phone-out 140ms ease-in both !important; }
   /* An open item has its own back trail at the top; the tab bar steps aside. */
@@ -2088,6 +2089,11 @@ const ensureSettingsPhoneStyles = () => {
     pointer-events: auto; overflow-x: auto; scrollbar-width: none; }
   .sset-top::-webkit-scrollbar { display: none; }
   .sset-top-shape { display: none !important; }
+  /* The section's name heads the sheet; its page tabs sit to the right. */
+  .sset-top-title { display: block; flex: 1 1 auto; min-width: 0; padding: 0 12px 0 6px;
+    font-size: 16px; font-weight: 650; letter-spacing: -0.02em; color: var(--t1, #eeeef5);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sset-top > .sset-tp, .sset-top-port > .sset-tp { flex-shrink: 0; }
 
   .sset-switch { left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important; width: auto !important;
     height: calc(${SSET_PHONE_BAR}px + env(safe-area-inset-bottom));
@@ -5245,6 +5251,9 @@ const SettingsSubPanelPopup = ({activeRow, popClosing, tweaks, setTweak, onClose
         <div ref={shapeRef} className="sset-top-shape" data-empty="1" aria-hidden="true">
           <span className="sset-top-line"/>
         </div>
+        {/* Phones only (see SETTINGS ON A PHONE): the section's name. An open
+            item's trail carries its own title instead. */}
+        {!crumb && <span className="sset-top-title" aria-hidden="true">{sec.label}</span>}
         {crumb ? (
           <nav className="sset-crumb" aria-label="Current item">
             <button type="button" className="sset-crumb-back" onClick={crumb.back}
