@@ -2067,6 +2067,7 @@ const ensureSettingsPhoneStyles = () => {
   st.textContent = `
 .sset-sw-close { display: none !important; }
 .sset-top-title { display: none; }
+.sset-top-wallet { display: none; }
 @media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
   .sset-subpop, .sset-subpop[data-tall="1"], .sset-subpop[data-fit="1"] {
     left: 0 !important; right: 0 !important;
@@ -2094,6 +2095,9 @@ const ensureSettingsPhoneStyles = () => {
     font-size: 16px; font-weight: 650; letter-spacing: -0.02em; color: var(--t1, #eeeef5);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sset-top > .sset-tp, .sset-top-port > .sset-tp { flex-shrink: 0; }
+  /* Payments: the earnings breakdown opens from here (see ProfitBubble). */
+  .sset-top-wallet { display: flex; align-items: center; flex-shrink: 0; order: 9;
+    margin-left: 8px; padding-left: 8px; border-left: 1px solid rgba(255,255,255,0.08); height: 22px; }
 
   .sset-switch { left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important; width: auto !important;
     height: calc(${SSET_PHONE_BAR}px + env(safe-area-inset-bottom));
@@ -2109,6 +2113,10 @@ const ensureSettingsPhoneStyles = () => {
   .sset-sw-sep { width: 1px; height: 20px; margin: 0; }
   .sset-sw-dot { top: 8px; right: 8px; }
   .sset-sw-close { display: inline-flex !important; color: rgba(200,203,220,0.75); }
+  /* Full-screen surfaces are fully opaque (the "lite" performance mode
+     otherwise leaves them at 0.98, and the list shows faintly through). */
+  html body .sset-subpop { background: linear-gradient(180deg, #15162a 0%, #11121f 100%) !important; }
+  html body .sset-switch, html body .sset-top { background: #10111d !important; }
 }
 @keyframes sset-phone-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes sset-phone-out { from { opacity: 1; } to { opacity: 0; transform: translateY(6px); } }`;
@@ -5273,6 +5281,11 @@ const SettingsSubPanelPopup = ({activeRow, popClosing, tweaks, setTweak, onClose
               dot: pg.id === 'apps' && platformsLive ? 'ok' : undefined}))}/>
         ) : null}
         <div ref={setPortRef} className="sset-top-port"/>
+        {/* Phones only: on a phone the dashboard (and its earnings chip)
+            isn't on screen, so Payments carries the way in. */}
+        {!crumb && sec.id === 'billing' && typeof window.ProfitBubble === 'function' && (
+          <span className="sset-top-wallet">{React.createElement(window.ProfitBubble, { sheet: true })}</span>
+        )}
       </div>
 
     </>

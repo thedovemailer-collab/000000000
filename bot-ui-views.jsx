@@ -2637,17 +2637,10 @@ const BriefingPill = () => {
 // focus reaches it), then fades in as muted text that only warms to red
 // under the pointer itself. Signing out still asks for confirmation, so a
 // stray click can't end the session. Fixed height: the search never moves.
-// `extra`: controls that ride this line when there's nowhere else for them
-// (the balance and notification chips, on a phone — see MsgList).
-// The balance and notification chips that sit top-right of the dashboard.
-// In one-pane mode (a phone) the dashboard isn't on screen, so the list
-// header carries them instead (bot-ui-widgets.jsx draws both).
-const ListHeaderChips = () => {
-  const PB = window.ProfitBubble, NB = window.NotificationsBubble;
-  if (!PB && !NB) return null;
-  return <>{PB && <PB/>}{NB && <NB/>}</>;
-};
-const ContactListProfile = ({account, extra = null}) => {
+// `big`: on a phone (one-pane layout) the name is the screen's title. The
+// dashboard's balance and notification chips aren't shown there: earnings
+// open from the Payments section of the settings sheet instead.
+const ContactListProfile = ({account, big = false}) => {
   const [near, setNear] = React.useState(false);
   const [focus, setFocus] = React.useState(false);
   const [over, setOver] = React.useState(false);
@@ -2655,7 +2648,7 @@ const ContactListProfile = ({account, extra = null}) => {
   // Left inset 11px = the search field's own padding, so the name sits on the
   // same vertical line as the magnifier below; "Sign out" ends on the line
   // of the search text's right padding.
-  const box = extra
+  const box = big
     ? { minHeight:28, margin:'2px 0 8px', padding:'0 0 0 2px' }
     : { height:20, margin:'0 0 7px', padding:'0 4px 0 11px' };
   if (!account) return <div style={box} aria-hidden="true"/>;
@@ -2680,15 +2673,14 @@ const ContactListProfile = ({account, extra = null}) => {
         userSelect:'none',
       }}>
       {/* A touch screen has no hover to reveal Sign out: tapping the name does. */}
-      {/* On a phone (extra set) the name is the screen's title, like any
-          messaging app's list header. */}
+      {/* On a phone the name is the screen's title, like any messaging
+          app's list header. */}
       <span title={[name, email].filter(Boolean).join(' · ')} onClick={()=>setNear(n => !n)} style={{
         flex:'0 1 auto', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
-        fontSize: extra ? 17 : 11.5, fontWeight: extra ? 700 : 600,
-        letterSpacing: extra ? '-0.025em' : '-0.005em', lineHeight: extra ? '28px' : '20px',
-        color: extra ? 'var(--t1)' : 'rgba(226,228,240,0.8)', cursor:'default',
+        fontSize: big ? 17 : 11.5, fontWeight: big ? 700 : 600,
+        letterSpacing: big ? '-0.025em' : '-0.005em', lineHeight: big ? '28px' : '20px',
+        color: big ? 'var(--t1)' : 'rgba(226,228,240,0.8)', cursor:'default',
       }}>{name}</span>
-      {extra && <span style={{flex:1}}/>}
       <button type="button" onClick={signOut}
         onMouseEnter={()=>setOver(true)} onMouseLeave={()=>setOver(false)}
         onFocus={()=>setFocus(true)} onBlur={()=>setFocus(false)}
@@ -2713,7 +2705,6 @@ const ContactListProfile = ({account, extra = null}) => {
         </svg>
         <span>{busy ? 'Signing out…' : 'Sign out'}</span>
       </button>
-      {extra && <div style={{display:'flex', alignItems:'center', gap:6, flexShrink:0}}>{extra}</div>}
     </div>
   );
 };
@@ -9243,15 +9234,6 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
     MSG_LAYOUT.single = false;
     MSG_LAYOUT.listHidden = false;
   }, [stopPaneAnims]);
-  // One-pane list: the balance / notification chips live in the list header
-  // (ListHeaderChips), so their popovers may open while the dashboard is
-  // hidden (see bot-ui-widgets.css, .bcw-pop).
-  React.useEffect(() => {
-    const on = paneView === 'list';
-    if (on) document.body.setAttribute('data-bcw-chips', 'list');
-    else document.body.removeAttribute('data-bcw-chips');
-    return () => document.body.removeAttribute('data-bcw-chips');
-  }, [paneView]);
 
   // ── Live window resize (see LIVE WINDOW RESIZE in BotCommand.html) ──
   // While a window edge is being dragged:
@@ -9979,7 +9961,7 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
           {/* The signed-in account — one quiet header line above the search
               (replaces the briefing / weather ticker and the account card
               that used to head the settings menu). Sign out lives here. */}
-          <ContactListProfile account={account} extra={single ? <ListHeaderChips/> : null}/>
+          <ContactListProfile account={account} big={single}/>
           {/* Search bar — muted glass, matches widget surface. The settings
               gear sits at its right end, inset 4px from the top, bottom and
               right edges, after a hairline. */}

@@ -2970,7 +2970,11 @@ const BCW_NET_PAYMENT_MS = 4600;
 const BCW_NET_BUMP_MS    = 1800;
 const BCW_NET_LEAVE_MS   = 320;   // grace after the pointer leaves
 
-const ProfitBubble = () => {
+// `sheet`: the phone version (see the Payments section of the settings
+// sheet, bot-ui-settings.jsx). The chip is a plain wallet button, and the
+// breakdown opens as a full-screen sheet with a title bar and a close
+// button instead of a dropdown under the chip.
+const ProfitBubble = ({sheet = false}) => {
   const convs    = useMsgs();
   const invoices = useBcwPayments();
   const products = useBcwProducts();
@@ -3014,7 +3018,7 @@ const ProfitBubble = () => {
   const avg   = n ? gross / n : 0;
   const pendingTotal = pending.reduce((s, r) => s + r.usd, 0);
   const last  = confirmed[0] || null;
-  const recent = (p.inRange[range] || []).slice(0, 3);
+  const recent = (p.inRange[range] || []).slice(0, sheet ? 8 : 3);
 
   // ── WHEN THE AMOUNT SHOWS ─────────────────────────────────────────
   // At rest the chip is just the wallet glyph. The figure slides out:
@@ -3096,34 +3100,9 @@ const ProfitBubble = () => {
   }, []);
   const netLabel = `Net ${meta.label ? meta.label.toLowerCase() : ''}: ${bcwChipMoney(net)}`.replace(/\s+:/, ':');
 
-  return (
+  // The breakdown itself — the same in the dropdown and the sheet.
+  const panel = (
     <>
-      <button
-        ref={btnRef}
-        className="bcw-chip bcw-chip-read bcw-chip-net"
-        data-on={open ? '1' : '0'}
-        data-open={expanded ? '1' : '0'}
-        data-bump={bump ? '1' : '0'}
-        data-zero={net === 0 ? '1' : '0'}
-        aria-label={`${netLabel} — open the breakdown`}
-        title={expanded ? 'Click for the full breakdown' : netLabel}
-        onClick={() => setOpen(o => !o)}
-        onMouseEnter={enter}
-        onMouseLeave={leave}
-        onFocus={enter}
-        onBlur={leave}
-      >
-        <span className="bcw-chip-glyph"><WIcon name="wallet" size={13}/></span>
-        <span className="bcw-chip-reveal" style={{ width: expanded ? innerW : 0 }} aria-hidden={!expanded}>
-          <span className="bcw-chip-reveal-in" ref={innerRef}>
-            <span className="bcw-chip-rule"/>
-            <BcwCountMoney value={net} className="bcw-chip-fig"/>
-          </span>
-        </span>
-      </button>
-
-      {open && pos && bcwPortal(
-        <div ref={popRef} className="bcw-pop" style={{left:pos.left, top:pos.top, width:BCW_PROFIT_POP_W}} role="dialog">
           {/* The "Money taken" header is gone, the same way the
               notifications header went: the hero figure is right underneath
               it labelled "net taken", so the title was naming something the
@@ -3196,7 +3175,7 @@ const ProfitBubble = () => {
             </div>
           </div>
 
-          {recent.length > 0 && (
+          {recent.length > 0 ? (
             <div className="bcw-pf-recent">
               <div className="bcw-pf-rechead">
                 <span>Recent</span>
@@ -3217,7 +3196,70 @@ const ProfitBubble = () => {
                 </button>
               ))}
             </div>
-          )}
+          ) : sheet ? (
+            <div className="bcw-pf-none">No payments {meta.label ? meta.label.toLowerCase() : 'yet'}</div>
+          ) : null}
+    </>
+  );
+
+  if (sheet) {
+    return (
+      <>
+        {/* The wallet glyph and the net figure, so it reads as money (the
+            Payments tabs beside it already have a wallets icon). */}
+        <button ref={btnRef} type="button" className="bcw-sheet-btn" data-on={open ? '1' : '0'}
+          data-bump={bump ? '1' : '0'}
+          aria-label={`Earnings — ${netLabel}`} title="Earnings"
+          onClick={() => setOpen(true)}>
+          <WIcon name="wallet" size={13}/>
+          <span className="bcw-sheet-btn-fig">{bcwChipMoney(net)}</span>
+        </button>
+        {open && bcwPortal(
+          <div ref={popRef} className="bcw-pop bcw-pop-sheet" role="dialog" aria-modal="true" aria-label="Earnings"
+            onClick={e => e.stopPropagation()}>
+            <div className="bcw-sheet-hd">
+              <span className="bcw-sheet-title">Earnings</span>
+              <button type="button" className="bcw-sheet-x" onClick={close} aria-label="Close earnings">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  strokeLinecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="bcw-sheet-body">{panel}</div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        className="bcw-chip bcw-chip-read bcw-chip-net"
+        data-on={open ? '1' : '0'}
+        data-open={expanded ? '1' : '0'}
+        data-bump={bump ? '1' : '0'}
+        data-zero={net === 0 ? '1' : '0'}
+        aria-label={`${netLabel} — open the breakdown`}
+        title={expanded ? 'Click for the full breakdown' : netLabel}
+        onClick={() => setOpen(o => !o)}
+        onMouseEnter={enter}
+        onMouseLeave={leave}
+        onFocus={enter}
+        onBlur={leave}
+      >
+        <span className="bcw-chip-glyph"><WIcon name="wallet" size={13}/></span>
+        <span className="bcw-chip-reveal" style={{ width: expanded ? innerW : 0 }} aria-hidden={!expanded}>
+          <span className="bcw-chip-reveal-in" ref={innerRef}>
+            <span className="bcw-chip-rule"/>
+            <BcwCountMoney value={net} className="bcw-chip-fig"/>
+          </span>
+        </span>
+      </button>
+
+      {open && pos && bcwPortal(
+        <div ref={popRef} className="bcw-pop" style={{left:pos.left, top:pos.top, width:BCW_PROFIT_POP_W}} role="dialog">
+          {panel}
         </div>
       )}
     </>
