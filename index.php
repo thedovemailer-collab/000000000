@@ -431,7 +431,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       <div>
         <span class="pill rv"><b></b> Telegram · Discord · Your own contact page</span>
         <h1 class="rv">AI customer agents<br><em>wherever you chat.</em></h1>
-        <p class="lead rv">Works with Telegram and Discord, or on its own through your personal contact page. Customers are answered, paid and served automatically, even while you're away.</p>
+        <p class="lead rv">Works with Telegram and Discord, or on its own through your personal contact page. Customers are answered, processed and served automatically, even while you're away.</p>
         <div class="cta rv">
           <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
           <?php if ($DESKTOP_URL !== ''): ?>
