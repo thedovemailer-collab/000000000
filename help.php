@@ -314,31 +314,31 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <div class="wrap">
       <span class="eyebrow">Help centre</span>
       <h1>Setup <em>guide.</em></h1>
-      <p class="sub">Choose how customers reach you, then follow the steps. Most setups take under ten minutes.</p>
+      <p class="sub">Pick a setup and follow the steps.</p>
 
       <div class="picks">
         <a class="pick" href="#telegram-bot">
           <span class="ic"><svg><use href="#i-tg"/></svg></span>
           <b>Telegram bot</b>
-          <span>A bot created with @BotFather. The quickest way to start.</span>
+          <span>The quickest way to start.</span>
           <span class="where"><span class="badge"><i></i>Browser</span><span class="badge"><i></i>Desktop</span></span>
         </a>
         <a class="pick" href="#telegram-account">
           <span class="ic"><svg><use href="#i-user"/></svg></span>
           <b>Telegram account</b>
-          <span>Your own Telegram account, with full control.</span>
+          <span>Replies as you, with full control.</span>
           <span class="where"><span class="badge desk"><i></i>Desktop app</span></span>
         </a>
         <a class="pick" href="#discord">
           <span class="ic"><svg><use href="#i-dc"/></svg></span>
           <b>Discord bot</b>
-          <span>A bot from the Discord Developer Portal.</span>
+          <span>For your Discord community.</span>
           <span class="where"><span class="badge"><i></i>Browser</span><span class="badge"><i></i>Desktop</span></span>
         </a>
         <a class="pick" href="#contact-page">
           <span class="ic"><svg><use href="#i-link"/></svg></span>
           <b>Contact page</b>
-          <span>Your own chat link. No Telegram or Discord needed.</span>
+          <span>Your own chat link, no platform needed.</span>
           <span class="where"><span class="badge"><i></i>Browser</span><span class="badge"><i></i>Desktop</span></span>
         </a>
       </div>
@@ -363,7 +363,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       <section class="sec" id="compare">
         <span class="eyebrow">Overview</span>
         <h2>Browser or <em>desktop app?</em></h2>
-        <p class="sub">The website runs Telegram bots, Discord bots and your contact page on our servers, so they keep replying when your browser is closed. Signing in with your own Telegram account needs the desktop app, because that connection runs on your computer.</p>
+        <p class="sub">Bots and your contact page run on our servers, so they reply even while you're offline. Your own Telegram account needs the desktop app.</p>
 
         <div class="cmp-wrap">
           <table class="cmp">
@@ -383,25 +383,6 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
             </tbody>
           </table>
         </div>
-
-        <div class="duo">
-          <div class="card">
-            <h4><svg><use href="#i-globe"/></svg>In the browser</h4>
-            <ul>
-              <li>Telegram bots, Discord bots and your contact page</li>
-              <li>Runs on our servers, around the clock</li>
-              <li>Nothing to install</li>
-            </ul>
-          </div>
-          <div class="card">
-            <h4><svg><use href="#i-monitor"/></svg>With the desktop app</h4>
-            <ul>
-              <li>Everything the browser does, plus your own Telegram account</li>
-              <li>Typing indicators, read receipts and your own name on replies</li>
-              <li>See when Discord customers are typing</li>
-            </ul>
-          </div>
-        </div>
         <?php if ($DESKTOP_URL !== ''): ?>
         <p style="margin-top:14px"><a class="btn btn-g" href="<?= $h($DESKTOP_URL) ?>"><svg><use href="#i-down"/></svg> Download the desktop app</a></p>
         <?php endif; ?>
@@ -413,37 +394,32 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
           <div>
             <span class="eyebrow">Telegram</span>
             <h2>Telegram bot <em>with @BotFather.</em></h2>
-            <p class="sub">Customers message your bot and your agent replies. About five minutes.</p>
+            <p class="sub">About five minutes.</p>
           </div>
           <div class="where"><span class="badge"><i></i>Browser</span><span class="badge"><i></i>Desktop</span></div>
         </div>
 
         <div class="part">Create the bot</div>
         <ol class="steps">
-          <li>Open Telegram and search for <b>@BotFather</b>. Pick the one with the blue verified tick, then tap <b>Start</b>.</li>
+          <li>In Telegram, open <b>@BotFather</b> (blue tick) and tap <b>Start</b>.</li>
           <li>Send <span class="cp">/newbot<button type="button" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></span></li>
-          <li>Send a <b>display name</b> for your bot. This is what customers see.<span class="ex">Example: My Store</span></li>
-          <li>Send a <b>username</b>. It must be unique and end in <code>bot</code>.<span class="ex">Example: mystore_bot</span></li>
-          <li>BotFather replies with your <b>token</b>, which looks like <code>1234567890:ABCdef…</code>. Copy all of it.</li>
+          <li>Send a <b>name</b>, e.g. My Store.</li>
+          <li>Send a <b>username</b> ending in <code>bot</code>, e.g. mystore_bot.</li>
+          <li>Copy the <b>token</b> BotFather sends back.</li>
         </ol>
 
-        <div class="part">Connect it to booqi</div>
+        <div class="part">Connect it</div>
         <ol class="steps">
           <li>In booqi, open <span class="path">Settings <i>›</i> Connections <i>›</i> Telegram</span></li>
-          <li>Click <b>Add Telegram account</b> and choose <b>Bot</b>.</li>
-          <li>Paste the token and click <b>Save &amp; connect</b>. You'll see <b>Running on the server</b> in the browser, or <b>Connected</b> in the desktop app.</li>
-          <li>Test it: open <code>t.me/your_bot_username</code> from another account and send a message.</li>
+          <li>Choose <b>Add Telegram account</b> › <b>Bot</b>, paste the token and click <b>Save &amp; connect</b>.</li>
+          <li>Message your bot to test it.</li>
         </ol>
 
-        <div class="note warn"><svg><use href="#i-warn"/></svg><div><p><b>Keep your token private.</b> Anyone with it can control your bot. If it leaks, send <span class="cp">/revoke<button type="button" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></span> to BotFather and paste the new token into booqi.</p></div></div>
-
-        <h3>Optional finishing touches</h3>
-        <p class="muted">Send these to BotFather to make your bot look complete:</p>
-        <ol class="steps">
-          <li><span class="cp">/setuserpic<button type="button" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></span> sets the bot's profile photo.</li>
-          <li><span class="cp">/setdescription<button type="button" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></span> sets the text people see before they press Start.</li>
-          <li><span class="cp">/setabouttext<button type="button" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></span> sets the short bio on the bot's profile.</li>
-        </ol>
+        <div class="note warn"><svg><use href="#i-warn"/></svg><div><p><b>Keep the token private.</b> If it leaks, send <span class="cp">/revoke<button type="button" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></span> to BotFather and paste the new one.</p></div></div>
+        <p class="muted" style="margin:0">Optional: set a photo, description and bio with
+          <span class="cp">/setuserpic<button type="button" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></span>
+          <span class="cp">/setdescription<button type="button" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></span>
+          <span class="cp">/setabouttext<button type="button" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></span></p>
       </section>
 
       <!-- ── TELEGRAM ACCOUNT ── -->
@@ -452,52 +428,29 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
           <div>
             <span class="eyebrow">Telegram</span>
             <h2>Your own <em>Telegram account.</em></h2>
-            <p class="sub">Your agent replies as you, from your real account. This gives you full control: typing indicators both ways, read receipts, and messaging customers first.</p>
+            <p class="sub">Replies as you, with typing indicators, read receipts and messaging customers first.</p>
           </div>
           <div class="where"><span class="badge desk"><i></i>Desktop app</span></div>
         </div>
 
-        <div class="note"><svg><use href="#i-info"/></svg><div>
-          <p><b>This needs the booqi desktop app.</b> Your account signs in on your own computer, not on our servers, so replies only go out while the app is open. For replies around the clock with nothing running, use a Telegram bot as well.</p>
-        </div></div>
+        <div class="note"><svg><use href="#i-info"/></svg><div><p><b>Needs the desktop app.</b> Replies only go out while it's open. Add a bot too for replies around the clock.</p></div></div>
 
-        <div class="part">Part 1 · Get your API ID and hash</div>
+        <div class="part">1 · Get your API ID and hash</div>
         <ol class="steps">
-          <li>In a web browser, go to <a class="ln" href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a>.</li>
-          <li>Enter your phone number in international format and click <b>Next</b>.<span class="ex">Example: +44 7700 900123</span></li>
-          <li>Telegram sends a code <b>to your Telegram app</b>, not by SMS. Enter it and sign in.</li>
-          <li>Click <b>API development tools</b>.</li>
-          <li>Fill in the form. <b>App title</b>: anything, e.g. <code>booqi</code>. <b>Short name</b>: 5–32 letters or numbers. <b>Platform</b>: Desktop. The other fields can stay empty. Click <b>Create application</b>.</li>
-          <li>Copy your <b>App api_id</b> (a number) and <b>App api_hash</b> (a long code).</li>
+          <li>Sign in at <a class="ln" href="https://my.telegram.org" target="_blank" rel="noopener">my.telegram.org</a> with your phone number, e.g. +44 7700 900123. The code arrives in Telegram, not by SMS.</li>
+          <li>Open <b>API development tools</b>.</li>
+          <li>Enter any app title and short name, choose <b>Desktop</b>, and click <b>Create application</b>.</li>
+          <li>Copy your <b>api_id</b> and <b>api_hash</b>.</li>
         </ol>
 
-        <div class="part">Part 2 · Sign in from the desktop app</div>
+        <div class="part">2 · Sign in</div>
         <ol class="steps">
-          <li>Open the booqi desktop app and go to <span class="path">Settings <i>›</i> Connections <i>›</i> Telegram</span></li>
-          <li>Click <b>Add Telegram account</b> and choose <b>My account</b>.</li>
-          <li>Enter your <b>API ID</b>, <b>API hash</b> and <b>phone number</b>, then click <b>Save &amp; sign in</b>.</li>
-          <li>Enter the login code Telegram sends to your Telegram app.</li>
-          <li>If you use two-step verification, enter your Telegram <b>cloud password</b> when asked.</li>
+          <li>In the desktop app, open <span class="path">Settings <i>›</i> Connections <i>›</i> Telegram</span></li>
+          <li>Choose <b>Add Telegram account</b> › <b>My account</b>, enter your API ID, hash and phone number, then click <b>Save &amp; sign in</b>.</li>
+          <li>Enter the code from Telegram, plus your cloud password if you use two-step verification.</li>
         </ol>
 
-        <div class="note warn"><svg><use href="#i-warn"/></svg><div>
-          <p><b>Treat your API hash like a password</b> and never share it. Your account shows as online while the app is running.</p>
-          <p>Telegram may restrict accounts that send large numbers of unsolicited messages. Use it for conversations with your own customers.</p>
-        </div></div>
-
-        <h3>What you get over a bot</h3>
-        <div class="duo" style="margin-top:0">
-          <div class="card"><ul>
-            <li>Replies come from your own name and photo</li>
-            <li>See when customers are typing</li>
-            <li>Read receipts, so customers see “seen”</li>
-          </ul></div>
-          <div class="card"><ul>
-            <li>Message customers first, by username</li>
-            <li>Block users on Telegram itself</li>
-            <li>Missed messages are picked up when the app reopens</li>
-          </ul></div>
-        </div>
+        <div class="note warn"><svg><use href="#i-warn"/></svg><div><p><b>Keep your API hash private.</b> Telegram may limit accounts that send unsolicited messages.</p></div></div>
       </section>
 
       <!-- ── DISCORD ── -->
@@ -506,38 +459,32 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
           <div>
             <span class="eyebrow">Discord</span>
             <h2>Discord <em>bot.</em></h2>
-            <p class="sub">Customers message your bot directly and your agent replies. About ten minutes.</p>
+            <p class="sub">About ten minutes.</p>
           </div>
           <div class="where"><span class="badge"><i></i>Browser</span><span class="badge"><i></i>Desktop</span></div>
         </div>
 
         <div class="part">Create the bot</div>
         <ol class="steps">
-          <li>Go to the <a class="ln" href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord Developer Portal</a> and sign in.</li>
-          <li>Click <b>New Application</b>, give it a name and click <b>Create</b>.</li>
-          <li>Open the <b>Bot</b> tab. Here you can also set the bot's name and photo.</li>
-          <li>Click <b>Reset Token</b>, confirm, and copy the token. Discord only shows it once.</li>
-          <li>On the same page, under <b>Privileged Gateway Intents</b>, turn on <b>Message Content Intent</b> and <b>Server Members Intent</b>. Click <b>Save Changes</b>.</li>
+          <li>In the <a class="ln" href="https://discord.com/developers/applications" target="_blank" rel="noopener">Developer Portal</a>, click <b>New Application</b>.</li>
+          <li>In the <b>Bot</b> tab, click <b>Reset Token</b> and copy it.</li>
+          <li>Turn on <b>Message Content Intent</b> and <b>Server Members Intent</b>, then <b>Save Changes</b>.</li>
         </ol>
 
         <div class="part">Add it to your server</div>
         <ol class="steps">
-          <li>Open <span class="path">OAuth2 <i>›</i> URL Generator</span></li>
-          <li>Under <b>Scopes</b>, tick <b>bot</b>.</li>
-          <li>Under <b>Bot Permissions</b>, tick <b>View Channels</b>, <b>Send Messages</b>, <b>Read Message History</b> and <b>Attach Files</b>.</li>
-          <li>Copy the generated URL, open it, choose your server and click <b>Authorize</b>.</li>
+          <li>In <span class="path">OAuth2 <i>›</i> URL Generator</span>, tick <b>bot</b>.</li>
+          <li>Tick <b>View Channels</b>, <b>Send Messages</b>, <b>Read Message History</b> and <b>Attach Files</b>.</li>
+          <li>Open the generated link and add the bot to your server.</li>
         </ol>
 
-        <div class="part">Connect it to booqi</div>
+        <div class="part">Connect it</div>
         <ol class="steps">
           <li>In booqi, open <span class="path">Settings <i>›</i> Connections <i>›</i> Discord</span></li>
           <li>Click <b>Add Discord bot</b>, paste the token and click <b>Save &amp; connect</b>.</li>
-          <li>Test it: in your server, right-click the bot, choose <b>Message</b> and say hello.</li>
         </ol>
 
-        <div class="note"><svg><use href="#i-info"/></svg><div>
-          <p>Discord only lets people message a bot they share a server with, and bots can't message people first. Share your server invite so customers can reach it.</p>
-        </div></div>
+        <div class="note"><svg><use href="#i-info"/></svg><div><p>Customers must share a server with the bot to message it. Bots can't message first.</p></div></div>
       </section>
 
       <!-- ── CONTACT PAGE ── -->
@@ -546,34 +493,28 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
           <div>
             <span class="eyebrow">No platform needed</span>
             <h2>Your <em>contact page.</em></h2>
-            <p class="sub">A personal chat link built into booqi. Customers chat with you in their browser, with end-to-end encryption. No bot or token required.</p>
+            <p class="sub">Your own encrypted chat link. No bot or token needed.</p>
           </div>
           <div class="where"><span class="badge"><i></i>Browser</span><span class="badge"><i></i>Desktop</span></div>
         </div>
         <ol class="steps">
-          <li>In booqi, click the <b>share</b> icon next to the settings gear (<b>Share your profile</b>).</li>
-          <li>Add your <b>name</b> and a <b>photo</b> so customers know it's you.</li>
-          <li>Copy your link and share it anywhere: your bio, website, signature or social profiles.</li>
-          <li>Customers open the link, sign in or create an account, and start chatting. Your agent replies automatically.</li>
+          <li>Click the <b>share</b> icon next to the settings gear.</li>
+          <li>Add your name and photo, then copy your link.</li>
+          <li>Share it anywhere. Your agent replies automatically.</li>
         </ol>
       </section>
 
       <!-- ── AI ── -->
       <section class="sec" id="ai">
-        <div class="sec-hd">
-          <div>
-            <span class="eyebrow">Optional</span>
-            <h2>Use your <em>own AI.</em></h2>
-            <p class="sub">The built-in AI works straight away. To use your own Gemini, OpenAI or Claude account instead, add an API key.</p>
-          </div>
-        </div>
-        <ol class="steps">
-          <li>Create a key with your provider:
-            <span class="ex"><a class="ln" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Gemini: Google AI Studio</a> &nbsp;·&nbsp;
-            <a class="ln" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">OpenAI: API keys</a> &nbsp;·&nbsp;
-            <a class="ln" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Claude: Anthropic Console</a></span></li>
-          <li>In booqi, open <span class="path">Settings <i>›</i> Connections</span> and find the AI section.</li>
-          <li>Choose your provider, paste the key and save. Usage is billed by your provider.</li>
+        <span class="eyebrow">Optional</span>
+        <h2>Use your <em>own AI.</em></h2>
+        <p class="sub">The built-in AI works out of the box. To use your own, add a key.</p>
+        <ol class="steps" style="margin-top:10px">
+          <li>Create a key:
+            <a class="ln" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Gemini</a>,
+            <a class="ln" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">OpenAI</a> or
+            <a class="ln" href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Claude</a>.</li>
+          <li>Paste it in <span class="path">Settings <i>›</i> Connections</span> under AI. Usage is billed by your provider.</li>
         </ol>
       </section>
 
@@ -584,40 +525,40 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
         <div class="faq">
           <details>
             <summary>Do I need the desktop app?<svg><use href="#i-plus"/></svg></summary>
-            <div class="a"><p>Only to use your own Telegram account. Telegram bots, Discord bots and your contact page all work from the website.</p></div>
+            <div class="a"><p>Only for your own Telegram account. Everything else works from the website.</p></div>
           </details>
           <details>
-            <summary>Will my agent reply while my computer is off?<svg><use href="#i-plus"/></svg></summary>
-            <div class="a"><p>Yes for Telegram bots, Discord bots and your contact page, since they run on our servers. A personal Telegram account only replies while the desktop app is open.</p></div>
+            <summary>Will it reply while my computer is off?<svg><use href="#i-plus"/></svg></summary>
+            <div class="a"><p>Yes, for bots and your contact page. A personal Telegram account needs the desktop app open.</p></div>
           </details>
           <details>
             <summary>Why can't I see when customers are typing?<svg><use href="#i-plus"/></svg></summary>
-            <div class="a"><p>Telegram never tells bots when someone is typing. To see it on Telegram, sign in with your own account in the desktop app. For Discord bots, typing shows in the desktop app. Your contact page always shows it.</p></div>
+            <div class="a"><p>Telegram doesn't share this with bots. Use your own account in the desktop app. Discord typing shows in the desktop app.</p></div>
           </details>
           <details>
-            <summary>Can I use a bot and my own account together?<svg><use href="#i-plus"/></svg></summary>
-            <div class="a"><p>Yes. You can save several accounts under <span class="path">Settings <i>›</i> Connections</span> and switch between them.</p></div>
+            <summary>Can I use a bot and my own account?<svg><use href="#i-plus"/></svg></summary>
+            <div class="a"><p>Yes. Save both under Settings › Connections and switch between them.</p></div>
           </details>
           <details>
-            <summary>My Discord bot is online but doesn't reply.<svg><use href="#i-plus"/></svg></summary>
-            <div class="a"><p>Check that <b>Message Content Intent</b> and <b>Server Members Intent</b> are on in the Developer Portal's Bot tab, then reconnect. Also make sure the customer shares a server with the bot.</p></div>
+            <summary>My Discord bot doesn't reply.<svg><use href="#i-plus"/></svg></summary>
+            <div class="a"><p>Turn on both intents in the Bot tab and reconnect. The customer must also share a server with the bot.</p></div>
           </details>
           <details>
-            <summary>My Telegram bot token isn't accepted.<svg><use href="#i-plus"/></svg></summary>
-            <div class="a"><p>Copy the whole token, including the numbers before the colon, with no spaces. If you've revoked it, use the new one from BotFather.</p></div>
+            <summary>My bot token isn't accepted.<svg><use href="#i-plus"/></svg></summary>
+            <div class="a"><p>Copy the whole token with no spaces. If you revoked it, use the new one.</p></div>
           </details>
           <details>
-            <summary>The Telegram login code doesn't arrive.<svg><use href="#i-plus"/></svg></summary>
-            <div class="a"><p>It's sent inside the Telegram app, from the official “Telegram” chat, not by SMS. Check the app on your phone or computer.</p></div>
+            <summary>The Telegram code doesn't arrive.<svg><use href="#i-plus"/></svg></summary>
+            <div class="a"><p>Check the Telegram app, in the chat from “Telegram”. It isn't sent by SMS.</p></div>
           </details>
           <details>
             <summary>my.telegram.org shows an error.<svg><use href="#i-plus"/></svg></summary>
-            <div class="a"><p>Turn off any VPN or ad blocker, try another browser, and make sure the phone number includes your country code. If it still fails, wait a few hours and try again.</p></div>
+            <div class="a"><p>Turn off any VPN or ad blocker, try another browser, and include your country code.</p></div>
           </details>
         </div>
 
         <div class="cta">
-          <div><b>Ready to connect?</b><span>Open booqi and go to Settings › Connections.</span></div>
+          <div><b>Ready to connect?</b><span>Settings › Connections in booqi.</span></div>
           <div class="btns">
             <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $signedIn ? 'Open app' : 'Get started' ?> <svg><use href="#i-arrow"/></svg></a>
             <?php if ($DESKTOP_URL !== ''): ?><a class="btn btn-g" href="<?= $h($DESKTOP_URL) ?>"><svg><use href="#i-down"/></svg> Desktop app</a><?php endif; ?>

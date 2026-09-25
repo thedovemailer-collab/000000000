@@ -87,6 +87,12 @@ svg { display: block; }
 .links a:hover { color: var(--t1); background: rgba(255,255,255,.04); }
 .links a[aria-current="true"] { color: var(--t1); background: rgba(255,255,255,.075); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
 .nav .btn-s { margin-left: 4px; }
+/* Help opens another page, so it sits apart from the section links. */
+.nav-sep { width: 1px; height: 18px; background: var(--ln2); flex: none; }
+.nav-help { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px; border-radius: 9px; font-size: 12.5px; color: var(--t2);
+  transition: color .15s, background-color .15s; }
+.nav-help:hover { color: var(--t1); background: rgba(255,255,255,.04); }
+.nav-help svg { width: 15px; height: 15px; color: #7dd3fc; }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 16px; border-radius: 10px;
@@ -348,7 +354,9 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
 }
 @media (max-width: 640px) {
   .links { display: none; }
-  .nav .btn-s { margin-left: auto; }
+  .nav-sep { display: none; }
+  .nav-help { margin-left: auto; }
+  .nav .btn-s { margin-left: 0; }
   .nav .wrap { height: 48px; padding: 0 6px 0 16px; }
   .f-top, .f-bot { justify-content: center; text-align: center; }
   .f-links { margin-left: 0; justify-content: center; }
@@ -403,6 +411,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <symbol id="i-term" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-5-6-5M12 19h8"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></symbol>
     <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.2-2.4 3.6M12 17h.01"/></symbol>
     <symbol id="i-lang" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h8M8 3v2M5.5 5c.8 3.3 3 6 6 7.5M10.5 5c-.8 3.8-3.3 6.8-6.5 8.5"/><path d="M13 21l4-9 4 9M14.5 18h5"/></symbol>
   </defs>
 </svg>
@@ -418,8 +427,9 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       <a href="#payments">Payments</a>
       <a href="#languages">Languages</a>
       <a href="#ai">AI</a>
-      <a href="help.php">Help</a>
     </nav>
+    <span class="nav-sep" aria-hidden="true"></span>
+    <a class="nav-help" href="help.php"><svg><use href="#i-help"/></svg>Help</a>
     <a class="btn btn-g btn-s" href="<?= $h($APP_URL) ?>"><?= $signedIn ? 'Open app' : 'Sign in' ?></a>
   </div>
 </header>
