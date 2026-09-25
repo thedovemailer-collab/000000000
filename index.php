@@ -19,15 +19,15 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>booqi — AI sales agents for Telegram and Discord</title>
+<title>booqi — AI agents for Telegram and Discord</title>
 <meta name="description" content="AI agents for Telegram, Discord and direct chats. Customer replies, crypto payments and licence delivery, fully automated.">
 <meta name="theme-color" content="#020b10">
-<meta property="og:title" content="booqi — AI sales agents">
-<meta property="og:description" content="AI sales agents for Telegram and Discord.">
+<meta property="og:title" content="booqi — AI agents for Telegram and Discord">
+<meta property="og:description" content="AI agents that handle customer conversations on Telegram and Discord.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1'%3E%3Cstop stop-color='%2314b8a6'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='%23061831'/%3E%3Cpath d='M9 11h14a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3h-7l-5 4v-4H9a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3z' fill='url(%23g)'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fredoka:wght@600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fredoka:wght@400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
   --fx1: #14b8a6; --fx2: #06b6d4; --fx3: #3b82f6;
@@ -58,7 +58,7 @@ svg { display: block; }
 @keyframes drift { to { transform: translate(6vw, 4vh) scale(1.08); } }
 
 /* Wordmark */
-.word, .brandname { font-family: 'Fredoka', var(--font); font-style: normal; font-weight: 600; letter-spacing: -.01em; }
+.word, .brandname { font-family: 'Fredoka', var(--font); font-style: normal; font-weight: 400; letter-spacing: -.01em; }
 .word { font-size: 24px; line-height: 1; padding-bottom: 2px;
   background: linear-gradient(90deg, var(--fx1) 0%, var(--fx2) 28%, var(--fx3) 56%, #dfe6f0 72%, var(--fx1) 100%);
   background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
@@ -430,7 +430,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <div class="wrap">
       <div>
         <span class="pill rv"><b></b> Telegram · Discord · Direct chats</span>
-        <h1 class="rv">AI sales agents<br><em>for Telegram &amp; Discord.</em></h1>
+        <h1 class="rv">AI customer agents<br><em>for Telegram &amp; Discord.</em></h1>
         <p class="lead rv">Answer customers, accept crypto payments and deliver orders automatically, even while you're away.</p>
         <div class="cta rv">
           <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
@@ -448,12 +448,12 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
         </div>
       </div>
 
-      <div class="demo rv" aria-label="Example: an agent selling a licence key">
+      <div class="demo rv" aria-label="Example conversation with an agent">
         <div class="demo-in">
           <div class="demo-hd">
             <div class="ava">MJ</div>
             <div><div class="n">Maya J.</div><div class="s"><svg><use href="#i-tg"/></svg> Telegram</div></div>
-            <div class="ag"><i></i> Sales agent</div>
+            <div class="ag"><i></i> AI agent</div>
           </div>
           <div class="thread" id="thread">
             <div class="b in"  data-t="0">hey, is the pro licence still available?</div>
@@ -543,9 +543,9 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
         </div>
         <div class="tile w3 rv">
           <div class="ic"><svg><use href="#i-chart"/></svg></div>
-          <h3>Sales overview</h3>
-          <p>Customers, orders, licences and revenue at a glance.</p>
-          <div class="viz"><span class="tag"><i></i>Needs you</span><span class="tag ok"><i></i>Customers</span><span class="tag"><i></i>Earnings</span><span class="tag"><i></i>Reports</span></div>
+          <h3>Overview</h3>
+          <p>Customers, orders, licences and activity at a glance.</p>
+          <div class="viz"><span class="tag"><i></i>Needs you</span><span class="tag ok"><i></i>Customers</span><span class="tag"><i></i>Activity</span><span class="tag"><i></i>Reports</span></div>
         </div>
       </div>
       <div class="more rv">
@@ -824,7 +824,7 @@ var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)')
   });
 })();
 
-// Demo chat: the sale, on a loop.
+// Demo chat, on a loop.
 (function () {
   var items = Array.prototype.slice.call(document.querySelectorAll('#thread [data-t]'));
   var typing = document.getElementById('typing'), inv = document.getElementById('inv'), st = document.getElementById('invst');
@@ -849,7 +849,7 @@ var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)')
   var pairs = [
     ['who still owes me?', 'Two open invoices: Maya ($49) and Ken ($19).'],
     ['remind Ken about his renewal tomorrow', 'Scheduled. I\'ll message him at 10:00.'],
-    ['how are sales this week?', 'Ahead of last week. Want the full report?'],
+    ['how was this week?', 'Busier than last week. Want the full report?'],
     ['take the agent off Maya\'s chat', 'Done. That chat is yours now.'],
   ];
   if (reduce) { q.textContent = pairs[0][0]; at.textContent = pairs[0][1]; a.classList.add('on'); return; }
