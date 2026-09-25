@@ -1,5 +1,5 @@
 <?php
-// ── BotCommand — landing page ─────────────────────────────────
+// ── booqi — landing page ─────────────────────────────────
 // Where the buttons go. APP_URL is the web app (BotCommand.html beside
 // this file); DESKTOP_URL is the desktop app download — leave it '' to
 // hide that button until you have a download link.
@@ -19,15 +19,15 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>BotCommand — AI sales agents for Telegram and Discord</title>
-<meta name="description" content="AI sales agents for Telegram, Discord and direct chats. Crypto payments, instant delivery and licence renewals, around the clock.">
+<title>booqi — AI sales agents for Telegram and Discord</title>
+<meta name="description" content="An AI sales agent that chats with your customers, takes crypto payments and delivers licences on Telegram, Discord and direct chats.">
 <meta name="theme-color" content="#020b10">
-<meta property="og:title" content="BotCommand — AI sales agents">
-<meta property="og:description" content="Sell in chat, around the clock.">
+<meta property="og:title" content="booqi — AI sales agents">
+<meta property="og:description" content="Let AI handle your sales on Telegram and Discord.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1'%3E%3Cstop stop-color='%2314b8a6'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='%23061831'/%3E%3Cpath d='M9 11h14a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3h-7l-5 4v-4H9a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3z' fill='url(%23g)'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
   --fx1: #14b8a6; --fx2: #06b6d4; --fx3: #3b82f6;
@@ -36,13 +36,13 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
   --ln: rgba(255,255,255,.065); --ln2: rgba(255,255,255,.11);
   --glass: rgba(13,19,31,.66); --glass2: rgba(18,26,40,.74);
   --ok: #30d158; --warn: #f5a524;
-  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
   --w: 1080px; --r: 14px; --navh: 76px;
 }
 *, *::before, *::after { box-sizing: border-box; }
 html { scroll-behavior: smooth; scroll-padding-top: 0; -webkit-text-size-adjust: 100%; background: var(--b1); }
-body { margin: 0; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; color: var(--t1); font: 400 14.5px/1.55 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+body { margin: 0; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; color: var(--t1); font: 400 14.5px/1.55 var(--font); letter-spacing: .005em; word-spacing: .05em; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
 svg { display: block; }
 .wrap { width: min(var(--w), 100% - 40px); margin-inline: auto; }
@@ -58,7 +58,7 @@ svg { display: block; }
 @keyframes drift { to { transform: translate(6vw, 4vh) scale(1.08); } }
 
 /* Wordmark */
-.word { font: 700 16px/1 'Orbitron', var(--font); letter-spacing: .08em; text-transform: uppercase;
+.word { font: 800 21px/1 var(--font); letter-spacing: -.04em; padding-bottom: 2px;
   background: linear-gradient(90deg, var(--fx1) 0%, var(--fx2) 28%, var(--fx3) 56%, #dfe6f0 72%, var(--fx1) 100%);
   background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
   animation: flow 9s ease-in-out infinite alternate; filter: drop-shadow(0 0 14px color-mix(in srgb, var(--fx1) 16%, transparent)); }
@@ -88,7 +88,7 @@ svg { display: block; }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 16px; border-radius: 10px;
-  font: 600 13px/1 var(--font); letter-spacing: -.005em; white-space: nowrap; cursor: pointer;
+  font: 600 13px/1 var(--font); letter-spacing: 0; white-space: nowrap; cursor: pointer;
   transition: transform .15s, background-color .15s, box-shadow .2s, border-color .15s; }
 .btn:active { transform: translateY(1px); }
 .btn svg { width: 14px; height: 14px; }
@@ -102,13 +102,13 @@ svg { display: block; }
 /* Type */
 .eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--fx1); }
 .eyebrow::before { content: ''; width: 14px; height: 1px; background: currentColor; opacity: .6; }
-h1 { margin: 16px 0 12px; font-size: clamp(30px, 4vw, 48px); line-height: 1.04; letter-spacing: -.035em; font-weight: 700; }
+h1 { margin: 16px 0 12px; font-size: clamp(30px, 4vw, 48px); line-height: 1.04; letter-spacing: -.024em; font-weight: 700; }
 h1, h2 { background: linear-gradient(180deg, #fff 30%, #aab4c8); -webkit-background-clip: text; background-clip: text; color: transparent; }
 @media (min-width: 981px) { h1 em { white-space: nowrap; } }
 .hero .wrap > * { min-width: 0; }
-h1 em, h2 em { font-style: normal; background: linear-gradient(90deg, #5eead4, #7dd3fc 50%, #a5b4fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
-h2 { margin: 8px 0 8px; font-size: clamp(24px, 3vw, 34px); line-height: 1.12; letter-spacing: -.028em; font-weight: 650; }
-h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+h1 em, h2 em { font-family: 'Instrument Serif', Georgia, serif; font-style: italic; font-weight: 400; font-size: 1.1em; letter-spacing: 0; padding-right: .06em; background: linear-gradient(90deg, #5eead4, #7dd3fc 50%, #a5b4fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+h2 { margin: 8px 0 8px; font-size: clamp(24px, 3vw, 34px); line-height: 1.12; letter-spacing: -.018em; font-weight: 650; }
+h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: 0; }
 .sub { margin: 0; color: var(--t2); max-width: 34em; }
 .hd { margin-bottom: 24px; }
 .hd.c { text-align: center; } .hd.c .sub { margin-inline: auto; }
@@ -292,7 +292,7 @@ h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
 /* How it works */
 .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; counter-reset: s; }
 .steps .tile { grid-column: auto; }
-.steps .tile::after { counter-increment: s; content: '0' counter(s); position: absolute; top: 16px; right: 18px; font: 700 11px 'Orbitron', var(--font); letter-spacing: .08em; color: rgba(255,255,255,.16); }
+.steps .tile::after { counter-increment: s; content: '0' counter(s); position: absolute; top: 16px; right: 18px; font: italic 400 20px 'Instrument Serif', serif; letter-spacing: 0; color: rgba(255,255,255,.16); }
 
 /* Closing card: a lit panel with a gradient edge and a faint grid. */
 .finale { position: relative; border-radius: 24px; padding: 1px; overflow: hidden;
@@ -405,9 +405,9 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
 
 <header class="nav">
   <div class="wrap">
-    <a href="#top" class="brand" aria-label="BotCommand">
+    <a href="#top" class="brand" aria-label="booqi">
       <span class="mark"><svg><use href="#i-mark"/></svg></span>
-      <span class="word">BotCommand</span>
+      <span class="word">booqi</span>
     </a>
     <nav class="links" aria-label="Sections">
       <a href="#features">Features</a>
@@ -427,8 +427,8 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <div class="wrap">
       <div>
         <span class="pill rv"><b></b> Telegram · Discord · Direct chats</span>
-        <h1 class="rv">AI sales agents<br><em>for Telegram &amp; Discord.</em></h1>
-        <p class="lead rv">Automate customer conversations, crypto checkout and licence delivery. Runs 24/7, even when you're offline.</p>
+        <h1 class="rv">Let AI handle your sales<br><em>on Telegram &amp; Discord.</em></h1>
+        <p class="lead rv">It chats with your customers, takes payment and sends their order. Day and night, even when you're away.</p>
         <div class="cta rv">
           <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
           <?php if ($DESKTOP_URL !== ''): ?>
@@ -495,44 +495,44 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <div class="wrap">
       <div class="hd c rv">
         <span class="eyebrow">Features</span>
-        <h2>Designed for conversational commerce.</h2>
+        <h2>Everything you need, <em>in one place.</em></h2>
       </div>
       <div class="bento">
         <div class="tile w4 rv">
           <div class="ic"><svg><use href="#i-spark"/></svg></div>
-          <h3>Custom personas</h3>
-          <p>Define the tone, catalogue and availability. Every customer is remembered.</p>
+          <h3>Your own agent</h3>
+          <p>Choose how it talks and what it sells. It remembers every customer.</p>
           <div class="viz">
-            <span class="tag"><i></i>Persona</span><span class="tag"><i></i>Memory</span>
-            <span class="tag"><i></i>Reply hours</span><span class="tag"><i></i>Natural typing</span>
+            <span class="tag"><i></i>Personality</span><span class="tag"><i></i>Memory</span>
+            <span class="tag"><i></i>Reply hours</span><span class="tag"><i></i>Human-like typing</span>
           </div>
         </div>
         <div class="tile rv">
           <div class="ic"><svg><use href="#i-moon"/></svg></div>
-          <h3>Always available</h3>
-          <p>Replies continue when the app is closed.</p>
+          <h3>Always on</h3>
+          <p>Keeps replying when the app is closed.</p>
           <div class="viz"><span class="tag ok"><i></i>Online · app closed</span></div>
         </div>
         <div class="tile rv">
           <div class="ic"><svg><use href="#i-coin"/></svg></div>
           <h3>Crypto payments</h3>
-          <p>In-chat invoices, verified on-chain.</p>
+          <p>Send a payment link in chat. Payment is checked for you.</p>
           <div class="coins"><span class="coin">₿</span><span class="coin">Ξ</span><span class="coin">₮</span><span class="coin">Ł</span><span class="coin">Ð</span></div>
         </div>
         <div class="tile rv">
           <div class="ic"><svg><use href="#i-bolt"/></svg></div>
-          <h3>Instant fulfilment</h3>
-          <p>Keys and files delivered on confirmation.</p>
+          <h3>Instant delivery</h3>
+          <p>Keys and files are sent the moment payment arrives.</p>
         </div>
         <div class="tile rv">
           <div class="ic"><svg><use href="#i-hand"/></svg></div>
-          <h3>Human escalation</h3>
-          <p>Refunds and exceptions are routed to you.</p>
+          <h3>Hands off to you</h3>
+          <p>Refunds and tricky questions come straight to you.</p>
         </div>
         <div class="tile w3 rv">
           <div class="ic"><svg><use href="#i-ghost"/></svg></div>
           <h3>Ghost assistant</h3>
-          <p>Ask about your store or have it handle tasks: messages, reminders, invoices and reports.</p>
+          <p>Ask it about your shop, or have it send messages, reminders, invoices and reports.</p>
           <div class="gh" aria-hidden="true">
             <div class="gh-q"><span id="ghq"></span><span class="caret"></span></div>
             <div class="gh-a" id="gha"><span class="gh-av"><svg><use href="#i-ghost"/></svg></span><span class="gh-t" id="ght"></span></div>
@@ -540,9 +540,9 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
         </div>
         <div class="tile w3 rv">
           <div class="ic"><svg><use href="#i-chart"/></svg></div>
-          <h3>Analytics</h3>
-          <p>Customers, orders, licences and revenue in one view.</p>
-          <div class="viz"><span class="tag"><i></i>Escalated</span><span class="tag ok"><i></i>Customers</span><span class="tag"><i></i>Earnings</span><span class="tag"><i></i>Reports</span></div>
+          <h3>Sales overview</h3>
+          <p>Customers, orders, licences and earnings at a glance.</p>
+          <div class="viz"><span class="tag"><i></i>Needs you</span><span class="tag ok"><i></i>Customers</span><span class="tag"><i></i>Earnings</span><span class="tag"><i></i>Reports</span></div>
         </div>
       </div>
       <div class="more rv">
@@ -551,7 +551,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
         <span class="tag"><svg width="12" height="12"><use href="#i-user"/></svg>Filters &amp; blocking</span>
         <span class="tag"><svg width="12" height="12"><use href="#i-chat"/></svg>Reply, edit &amp; delete</span>
         <span class="tag"><svg width="12" height="12"><use href="#i-box"/></svg>Photos &amp; files</span>
-        <span class="tag"><svg width="12" height="12"><use href="#i-refresh"/></svg>Multi-account</span>
+        <span class="tag"><svg width="12" height="12"><use href="#i-refresh"/></svg>Multiple accounts</span>
         <span class="tag"><svg width="12" height="12"><use href="#i-spark"/></svg>Themes</span>
       </div>
     </div>
@@ -562,13 +562,13 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <div class="wrap split">
       <div class="rv">
         <span class="eyebrow">Licensing</span>
-        <h2>Automated <em>licence management.</em></h2>
-        <p class="sub">Licences are issued, renewed and checked for you.</p>
+        <h2>Licences, <em>taken care of.</em></h2>
+        <p class="sub">Sent, renewed and checked without you lifting a finger.</p>
         <ul class="list">
-          <li><svg><use href="#i-check"/></svg><span><b>Instant delivery.</b> A licence is sent as soon as payment is confirmed.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Automatic renewals.</b> Handled for you, even while you're offline.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Customer details.</b> Anything you need is collected after purchase.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Validation.</b> Check licences from your own software.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Sent instantly.</b> Customers get their licence as soon as they pay.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Easy renewals.</b> Handled for you, even while you're away.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Customer details.</b> Anything you need is asked for after purchase.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Key checks.</b> Your software can check if a licence is valid.</span></li>
         </ul>
       </div>
       <div class="lic rv" aria-label="Example licence">
@@ -600,17 +600,17 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
         <div class="join"></div>
         <div class="step"><div class="ic"><svg><use href="#i-coin"/></svg></div><div><b>Invoice sent</b><span>BTC, ETH, USDT and more</span></div><svg class="ck"><use href="#i-check"/></svg></div>
         <div class="join"></div>
-        <div class="step"><div class="ic"><svg><use href="#i-shield"/></svg></div><div><b>Payment confirmed</b><span>Watched on-chain</span></div><svg class="ck"><use href="#i-check"/></svg></div>
+        <div class="step"><div class="ic"><svg><use href="#i-shield"/></svg></div><div><b>Payment confirmed</b><span>Checked automatically</span></div><svg class="ck"><use href="#i-check"/></svg></div>
         <div class="join"></div>
         <div class="step"><div class="ic"><svg><use href="#i-box"/></svg></div><div><b>Order delivered</b><span>Key and files sent</span></div><svg class="ck"><use href="#i-check"/></svg></div>
       </div>
       <div class="rv">
         <span class="eyebrow">Payments</span>
-        <h2>Integrated <em>crypto checkout.</em></h2>
+        <h2>Get paid <em>in crypto.</em></h2>
         <ul class="list">
-          <li><svg><use href="#i-check"/></svg><span><b>Direct to your wallet.</b> Funds go to addresses you control.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Live rates.</b> Prices converted at the current market rate.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Late payments.</b> Detected and fulfilled automatically.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Straight to your wallet.</b> Money goes to addresses you own.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Fair prices.</b> Converted at today's rate.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Late payments.</b> Still picked up and delivered.</span></li>
         </ul>
         <div class="fee"><span class="fee-ic"><svg><use href="#i-shield"/></svg></span><span>Processed securely by <b>CryptAPI</b></span><span class="fee-pct">1% fee</span></div>
       </div>
@@ -622,8 +622,8 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <div class="wrap">
       <div class="hd c rv">
         <span class="eyebrow">Languages</span>
-        <h2>Multilingual <em>by default.</em></h2>
-        <p class="sub">Replies in 40+ languages, matching each customer's language and script.</p>
+        <h2>Speaks your <em>customers' language.</em></h2>
+        <p class="sub">Replies in 40+ languages, in whichever one each customer writes.</p>
       </div>
     </div>
     <div class="langs rv" aria-label="Examples of supported languages">
@@ -632,7 +632,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       <div class="lane r"><?php foreach (array_merge($lb, $lb) as $l): ?><span><?= $h($l) ?></span><?php endforeach; ?></div>
     </div>
     <div class="wrap lang-notes rv">
-      <span class="tag"><i></i>Right-to-left support</span><span class="tag"><i></i>Switches mid-conversation</span>
+      <span class="tag"><i></i>Right-to-left scripts</span><span class="tag"><i></i>Switches language mid-chat</span>
     </div>
   </section>
 
@@ -642,7 +642,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       <div class="rv">
         <span class="eyebrow">AI</span>
         <h2>Your choice of <em>AI.</em></h2>
-        <p class="sub">Use the built-in AI with no setup, or connect your own Gemini, OpenAI or Claude key.</p>
+        <p class="sub">Use the built-in AI with no setup, or use your own Gemini, OpenAI or Claude account.</p>
         <div class="ai3">
           <div class="prov prov-in"><span class="mark"><svg><use href="#i-mark"/></svg></span><div><b>Built-in</b><span>Ready to use</span></div></div>
           <div class="prov"><svg><use href="#l-gemini"/></svg><div><b>Gemini</b><span>Google</span></div></div>
@@ -653,8 +653,8 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       <div class="tile rv" style="grid-column:auto;padding:20px">
         <div class="ic"><svg><use href="#i-lock"/></svg></div>
         <h3>Privacy</h3>
-        <p>Direct chats are end-to-end encrypted, and any contact can be erased on request.</p>
-        <div class="viz"><span class="tag"><i></i>E2E encrypted</span><span class="tag"><i></i>Your wallets</span><span class="tag"><i></i>Contact page</span></div>
+        <p>Direct chats are private and encrypted. Delete any contact whenever you like.</p>
+        <div class="viz"><span class="tag"><i></i>Encrypted</span><span class="tag"><i></i>Your wallets</span><span class="tag"><i></i>Contact page</span></div>
       </div>
     </div>
   </section>
@@ -664,12 +664,12 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <div class="wrap">
       <div class="hd c rv">
         <span class="eyebrow">How it works</span>
-        <h2>Up and running <em>in minutes.</em></h2>
+        <h2>Ready <em>in minutes.</em></h2>
       </div>
       <div class="steps">
         <div class="tile rv"><div class="ic"><svg><use href="#i-tg"/></svg></div><h3>Connect</h3><p>Link a Telegram or Discord bot, or share your contact link.</p></div>
-        <div class="tile rv"><div class="ic"><svg><use href="#i-spark"/></svg></div><h3>Configure</h3><p>Add products, wallets and your agent's persona.</p></div>
-        <div class="tile rv"><div class="ic"><svg><use href="#i-moon"/></svg></div><h3>Launch</h3><p>Your agent handles sales from there.</p></div>
+        <div class="tile rv"><div class="ic"><svg><use href="#i-spark"/></svg></div><h3>Set up</h3><p>Add your products, wallet and how your agent should talk.</p></div>
+        <div class="tile rv"><div class="ic"><svg><use href="#i-moon"/></svg></div><h3>Go live</h3><p>Your agent takes it from there.</p></div>
       </div>
     </div>
   </section>
@@ -680,7 +680,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <div class="finale rv">
       <div class="finale-in">
         <span class="mark mark-lg"><svg><use href="#i-mark"/></svg></span>
-        <h2>Get started with <em>BotCommand.</em></h2>
+        <h2>Get started with <em>booqi.</em></h2>
         <p class="sub">Set up your first agent in a few minutes.</p>
         <div class="cta">
           <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
@@ -718,7 +718,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       </div>
     </div>
     <div class="f-bot">
-      <span>© <?= date('Y') ?> BotCommand. All rights reserved.</span>
+      <span>© <?= date('Y') ?> booqi. All rights reserved.</span>
       <span>Crypto payments are processed by CryptAPI (1% per transaction).</span>
     </div>
   </div>
