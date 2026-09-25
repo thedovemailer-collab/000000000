@@ -41,7 +41,7 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
   --w: 1080px; --r: 14px;
 }
 *, *::before, *::after { box-sizing: border-box; }
-html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; background: var(--b1); }
+html { scroll-behavior: smooth; scroll-padding-top: 56px; -webkit-text-size-adjust: 100%; background: var(--b1); }
 body { margin: 0; color: var(--t1); font: 400 14.5px/1.55 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
 svg { display: block; }
@@ -66,7 +66,7 @@ svg { display: block; }
 
 /* Nav */
 .nav { position: sticky; top: 0; z-index: 20; backdrop-filter: blur(18px) saturate(160%); -webkit-backdrop-filter: blur(18px) saturate(160%);
-  background: linear-gradient(180deg, rgba(2,11,16,.78), rgba(2,11,16,.4)); border-bottom: 1px solid var(--ln); }
+  background: linear-gradient(180deg, rgba(2,11,16,.9), rgba(2,11,16,.72)); border-bottom: 1px solid var(--ln); }
 .nav .wrap { display: flex; align-items: center; gap: 24px; height: 56px; }
 .nav nav { display: flex; gap: 22px; margin-left: auto; font-size: 13px; color: var(--t2); }
 .nav nav a:hover { color: var(--t1); }
@@ -87,8 +87,10 @@ svg { display: block; }
 /* Type */
 .eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--fx1); }
 .eyebrow::before { content: ''; width: 14px; height: 1px; background: currentColor; opacity: .6; }
-h1 { margin: 16px 0 12px; font-size: clamp(34px, 5.2vw, 56px); line-height: 1.04; letter-spacing: -.035em; font-weight: 700; }
+h1 { margin: 16px 0 12px; font-size: clamp(30px, 4vw, 48px); line-height: 1.04; letter-spacing: -.035em; font-weight: 700; }
 h1, h2 { background: linear-gradient(180deg, #fff 30%, #aab4c8); -webkit-background-clip: text; background-clip: text; color: transparent; }
+@media (min-width: 981px) { h1 em { white-space: nowrap; } }
+.hero .wrap > * { min-width: 0; }
 h1 em, h2 em { font-style: normal; background: linear-gradient(90deg, #5eead4, #7dd3fc 50%, #a5b4fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
 h2 { margin: 8px 0 8px; font-size: clamp(24px, 3vw, 34px); line-height: 1.12; letter-spacing: -.028em; font-weight: 650; }
 h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
@@ -96,8 +98,15 @@ h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
 .hd { margin-bottom: 24px; }
 .hd.c { text-align: center; } .hd.c .sub { margin-inline: auto; }
 
-/* Sections: tighter rhythm */
-section { padding-top: clamp(56px, 7vw, 84px); }
+/* Each part of the page is its own screen: the next one only appears as
+   you scroll (content centred in the space, a hairline between them). */
+.panel { position: relative; min-height: calc(100svh - 56px); display: flex; flex-direction: column; justify-content: center;
+  padding: clamp(48px, 6vw, 72px) 0; }
+.panel + .panel::before { content: ''; position: absolute; top: 0; left: 50%; transform: translateX(-50%); width: min(var(--w), 100% - 40px); height: 1px;
+  background: linear-gradient(90deg, transparent, var(--ln2), transparent); }
+.panel-hero { padding: 0; }
+.panel-hero .hero { flex: 1; display: flex; align-items: center; }
+.panel-end { min-height: calc(100svh - 56px - 76px); }
 
 /* ── Hero ── */
 .hero { position: relative; padding: clamp(44px, 7vw, 80px) 0 clamp(36px, 5vw, 56px); }
@@ -106,7 +115,7 @@ section { padding-top: clamp(56px, 7vw, 84px); }
   background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
   background-size: 44px 44px;
   -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 20%, transparent 75%); mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 20%, transparent 75%); }
-.hero .wrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: clamp(28px, 4vw, 52px); align-items: center; }
+.hero .wrap { display: grid; grid-template-columns: 1.2fr .8fr; gap: clamp(28px, 4vw, 52px); align-items: center; }
 .pill { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 11px 0 9px; border-radius: 99px;
   font-size: 11.5px; color: var(--t2); background: rgba(255,255,255,.04); border: 1px solid var(--ln2); }
 .pill b { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); animation: pulse 2.4s ease-in-out infinite; }
@@ -248,13 +257,16 @@ section { padding-top: clamp(56px, 7vw, 84px); }
 .steps .tile::after { counter-increment: s; content: '0' counter(s); position: absolute; top: 16px; right: 18px; font: 700 11px 'Orbitron', var(--font); letter-spacing: .08em; color: rgba(255,255,255,.16); }
 
 /* Closing */
-.end { margin-top: clamp(56px, 7vw, 84px); }
+.end { margin-top: 0; }
+.fee { margin-top: 14px; font-size: 11.5px; color: var(--t3); display: flex; align-items: center; gap: 6px; }
+.fee svg { width: 13px; height: 13px; color: var(--t3); }
 .end .box { text-align: center; padding: clamp(32px, 5vw, 52px) 22px; border-radius: 20px;
   background: radial-gradient(ellipse 70% 120% at 50% 0%, color-mix(in srgb, var(--fx2) 18%, transparent), transparent 70%), var(--glass); border: 1px solid var(--ln2); }
 .end h2 { margin-top: 0; }
 .end .cta { justify-content: center; }
 
-footer { margin-top: 56px; border-top: 1px solid var(--ln); }
+footer { border-top: 1px solid var(--ln); }
+footer .note { width: 100%; text-align: center; font-size: 11px; color: var(--t3); opacity: .8; order: 9; }
 footer .wrap { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; justify-content: space-between; padding: 22px 0 30px; font-size: 12px; color: var(--t3); }
 footer .word { font-size: 12.5px; }
 footer nav { display: flex; gap: 18px; }
@@ -342,13 +354,14 @@ footer a:hover { color: var(--t1); }
 </header>
 
 <main id="top">
-  <!-- ── HERO ── -->
+  <!-- ── HERO (with the logo band, one screen) ── -->
+  <div class="panel panel-hero">
   <div class="hero">
     <div class="wrap">
       <div>
         <span class="pill rv"><b></b> Telegram · Discord · Direct chats</span>
-        <h1 class="rv">Sell in chat,<br><em>around the clock.</em></h1>
-        <p class="lead rv">AI agents that answer customers, take crypto and deliver keys. Online or not.</p>
+        <h1 class="rv">AI sales agents<br><em>for Telegram &amp; Discord.</em></h1>
+        <p class="lead rv">Automate customer conversations, crypto checkout and licence delivery. Runs 24/7, even when you're offline.</p>
         <div class="cta rv">
           <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
           <?php if ($DESKTOP_URL !== ''): ?>
@@ -407,19 +420,20 @@ footer a:hover { color: var(--t1); }
       </div>
     </div>
   </div>
+  </div>
 
   <!-- ── FEATURES ── -->
-  <section id="features">
+  <section id="features" class="panel">
     <div class="wrap">
       <div class="hd c rv">
         <span class="eyebrow">Features</span>
-        <h2>Built for selling in chat.</h2>
+        <h2>Designed for conversational commerce.</h2>
       </div>
       <div class="bento">
         <div class="tile w4 rv">
           <div class="ic"><svg><use href="#i-spark"/></svg></div>
-          <h3>Your voice, your rules</h3>
-          <p>Set the persona, tone, catalogue and hours. It remembers every customer.</p>
+          <h3>Custom personas</h3>
+          <p>Define the tone, catalogue and availability. Every customer is remembered.</p>
           <div class="viz">
             <span class="tag"><i></i>Persona</span><span class="tag"><i></i>Memory</span>
             <span class="tag"><i></i>Reply hours</span><span class="tag"><i></i>Natural typing</span>
@@ -427,36 +441,36 @@ footer a:hover { color: var(--t1); }
         </div>
         <div class="tile rv">
           <div class="ic"><svg><use href="#i-moon"/></svg></div>
-          <h3>Works offline</h3>
-          <p>Keeps replying with the app closed.</p>
+          <h3>Always available</h3>
+          <p>Replies continue when the app is closed.</p>
           <div class="viz"><span class="tag ok"><i></i>Online · app closed</span></div>
         </div>
         <div class="tile rv">
           <div class="ic"><svg><use href="#i-coin"/></svg></div>
           <h3>Crypto payments</h3>
-          <p>Invoices in chat, confirmed on-chain.</p>
+          <p>In-chat invoices, verified on-chain.</p>
           <div class="coins"><span class="coin">₿</span><span class="coin">Ξ</span><span class="coin">₮</span><span class="coin">Ł</span><span class="coin">Ð</span></div>
         </div>
         <div class="tile rv">
           <div class="ic"><svg><use href="#i-bolt"/></svg></div>
-          <h3>Instant delivery</h3>
-          <p>Keys and files, sent on payment.</p>
+          <h3>Instant fulfilment</h3>
+          <p>Keys and files delivered on confirmation.</p>
         </div>
         <div class="tile rv">
           <div class="ic"><svg><use href="#i-hand"/></svg></div>
-          <h3>Hand-off</h3>
-          <p>Refunds and tricky cases come to you.</p>
+          <h3>Human escalation</h3>
+          <p>Refunds and exceptions are routed to you.</p>
         </div>
         <div class="tile w3 rv">
           <div class="ic"><svg><use href="#i-term"/></svg></div>
           <h3>Command bar</h3>
-          <p>Type what you need: invoices, messages, reports, reminders.</p>
+          <p>Create invoices, messages, reports and reminders in plain language.</p>
           <div class="cmd"><svg><use href="#i-arrow"/></svg><span id="cmdtxt"></span><span class="caret"></span></div>
         </div>
         <div class="tile w3 rv">
           <div class="ic"><svg><use href="#i-chart"/></svg></div>
-          <h3>Dashboard</h3>
-          <p>Customers, purchases, licences and revenue in one place.</p>
+          <h3>Analytics</h3>
+          <p>Customers, orders, licences and revenue in one view.</p>
           <div class="viz"><span class="tag"><i></i>Escalated</span><span class="tag ok"><i></i>Customers</span><span class="tag"><i></i>Earnings</span><span class="tag"><i></i>Reports</span></div>
         </div>
       </div>
@@ -473,17 +487,17 @@ footer a:hover { color: var(--t1); }
   </section>
 
   <!-- ── LICENSING ── -->
-  <section id="licensing">
+  <section id="licensing" class="panel">
     <div class="wrap split">
       <div class="rv">
         <span class="eyebrow">Licensing</span>
-        <h2>Licences on <em>autopilot.</em></h2>
-        <p class="sub">Issued, renewed and verified without you.</p>
+        <h2>Automated <em>licence management.</em></h2>
+        <p class="sub">Issued, renewed and verified without manual work.</p>
         <ul class="list">
-          <li><svg><use href="#i-check"/></svg><span><b>Issued on payment.</b> One key per unit, or stacked.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Renewals.</b> Invoiced and applied to the same key, even offline.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Onboarding.</b> Collects usernames and handles setup.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Verification API.</b> Check keys from your own software.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Automatic issuance.</b> One key per unit, or combined terms on a single key.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Renewals.</b> Invoiced and applied to the existing key, even while you're offline.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Onboarding.</b> Usernames and account setup collected after purchase.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Verification API.</b> Validate keys from your own software.</span></li>
         </ul>
       </div>
       <div class="lic rv" aria-label="Example licence">
@@ -508,7 +522,7 @@ footer a:hover { color: var(--t1); }
   </section>
 
   <!-- ── PAYMENTS ── -->
-  <section id="payments">
+  <section id="payments" class="panel">
     <div class="wrap split">
       <div class="flow rv" aria-label="Payment flow">
         <div class="step"><div class="ic"><svg><use href="#i-chat"/></svg></div><div><b>Customer asks</b><span>Agent quotes a price</span></div><svg class="ck"><use href="#i-check"/></svg></div>
@@ -521,23 +535,24 @@ footer a:hover { color: var(--t1); }
       </div>
       <div class="rv">
         <span class="eyebrow">Payments</span>
-        <h2>Checkout, <em>inside the chat.</em></h2>
+        <h2>Integrated <em>crypto checkout.</em></h2>
         <ul class="list">
-          <li><svg><use href="#i-check"/></svg><span><b>Your wallets.</b> Paid directly to you.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Live rates.</b> Priced at the current market rate.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Late payments.</b> Still matched and delivered.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Direct to your wallet.</b> Funds go to addresses you control.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Live rates.</b> Prices converted at the current market rate.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Late payments.</b> Detected and fulfilled automatically.</span></li>
         </ul>
+        <div class="fee"><svg><use href="#i-shield"/></svg> Payments processed by CryptAPI · 1% transaction fee</div>
       </div>
     </div>
   </section>
 
   <!-- ── LANGUAGES ── -->
-  <section id="languages">
+  <section id="languages" class="panel">
     <div class="wrap">
       <div class="hd c rv">
         <span class="eyebrow">Languages</span>
-        <h2><em>40+</em> languages.</h2>
-        <p class="sub">Replies in the customer's language and script.</p>
+        <h2>Multilingual <em>by default.</em></h2>
+        <p class="sub">Replies in 40+ languages, matching each customer's language and script.</p>
       </div>
     </div>
     <div class="langs rv" aria-label="Examples of supported languages">
@@ -546,17 +561,17 @@ footer a:hover { color: var(--t1); }
       <div class="lane r"><?php foreach (array_merge($lb, $lb) as $l): ?><span><?= $h($l) ?></span><?php endforeach; ?></div>
     </div>
     <div class="wrap lang-notes rv">
-      <span class="tag"><i></i>Right-to-left</span><span class="tag"><i></i>Switches mid-chat</span>
+      <span class="tag"><i></i>Right-to-left support</span><span class="tag"><i></i>Switches mid-conversation</span>
     </div>
   </section>
 
   <!-- ── AI + PRIVACY ── -->
-  <section id="ai">
+  <section id="ai" class="panel">
     <div class="wrap split">
       <div class="rv">
         <span class="eyebrow">AI</span>
-        <h2>Use your own AI key.</h2>
-        <p class="sub">Switch providers any time.</p>
+        <h2>Your choice of <em>AI provider.</em></h2>
+        <p class="sub">Connect your own Gemini, OpenAI or Claude key. Switch at any time.</p>
         <div class="ai3">
           <div class="prov"><svg><use href="#l-gemini"/></svg><div><b>Gemini</b><span>Google</span></div></div>
           <div class="prov"><svg style="color:#e7eaf0"><use href="#l-openai"/></svg><div><b>GPT</b><span>OpenAI</span></div></div>
@@ -565,32 +580,33 @@ footer a:hover { color: var(--t1); }
       </div>
       <div class="tile rv" style="grid-column:auto;padding:20px">
         <div class="ic"><svg><use href="#i-lock"/></svg></div>
-        <h3>Private</h3>
-        <p>Direct chats are end-to-end encrypted. Wipe any contact in one click.</p>
+        <h3>Privacy</h3>
+        <p>Direct chats are end-to-end encrypted, and any contact can be erased on request.</p>
         <div class="viz"><span class="tag"><i></i>E2E encrypted</span><span class="tag"><i></i>Your wallets</span><span class="tag"><i></i>Contact page</span></div>
       </div>
     </div>
   </section>
 
   <!-- ── HOW IT WORKS ── -->
-  <section id="how">
+  <section id="how" class="panel">
     <div class="wrap">
       <div class="hd c rv">
         <span class="eyebrow">How it works</span>
-        <h2>Three steps to go live.</h2>
+        <h2>Up and running <em>in minutes.</em></h2>
       </div>
       <div class="steps">
-        <div class="tile rv"><div class="ic"><svg><use href="#i-tg"/></svg></div><h3>Connect</h3><p>Add a Telegram or Discord bot, or share your link.</p></div>
-        <div class="tile rv"><div class="ic"><svg><use href="#i-spark"/></svg></div><h3>Configure</h3><p>Add your products, wallets and persona.</p></div>
-        <div class="tile rv"><div class="ic"><svg><use href="#i-moon"/></svg></div><h3>Go live</h3><p>Your agent takes it from there.</p></div>
+        <div class="tile rv"><div class="ic"><svg><use href="#i-tg"/></svg></div><h3>Connect</h3><p>Link a Telegram or Discord bot, or share your contact link.</p></div>
+        <div class="tile rv"><div class="ic"><svg><use href="#i-spark"/></svg></div><h3>Configure</h3><p>Add products, wallets and your agent's persona.</p></div>
+        <div class="tile rv"><div class="ic"><svg><use href="#i-moon"/></svg></div><h3>Launch</h3><p>Your agent handles sales from there.</p></div>
       </div>
     </div>
   </section>
 
   <!-- ── CLOSING ── -->
+  <section id="start" class="panel panel-end">
   <div class="wrap end">
     <div class="box rv">
-      <h2>Start selling in chat.</h2>
+      <h2>Get started with <em>BotCommand.</em></h2>
       <p class="sub" style="margin-inline:auto">Setup takes a few minutes.</p>
       <div class="cta">
         <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
@@ -600,6 +616,7 @@ footer a:hover { color: var(--t1); }
       </div>
     </div>
   </div>
+  </section>
 </main>
 
 <footer>
@@ -612,6 +629,7 @@ footer a:hover { color: var(--t1); }
       <a href="<?= $h($APP_URL) ?>"><?= $signedIn ? 'Open app' : 'Sign in' ?></a>
     </nav>
     <span>© <?= date('Y') ?> BotCommand</span>
+    <span class="note">Crypto payments are processed by CryptAPI, which charges a 1% fee per transaction.</span>
   </div>
 </footer>
 
