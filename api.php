@@ -16299,6 +16299,15 @@ GHOSTTXT;
         $rev = max(dm_edit_now($pdo), (int)$row['edit_rev'] + 1);
         $pdo->prepare("UPDATE bc_dm_messages SET iv=?, ct=?, sender_key=?, recipient_key=?, edited_at=NOW(), edit_rev=? WHERE id=? AND sender_id=?")
             ->execute([$iv, $ct, $sk, $rk, $rev, $mid, $me]);
+        // "Delete for everyone" is an edit to a deleted marker (the browser
+        // seals it like any edit, so the server still can't read it). A file
+        // the message carried goes with it (see FILES PEOPLE SEND IN DIRECT CHATS).
+        if (!empty($body['deleted'])) {
+            try {
+                $pdo->prepare("DELETE p FROM bc_dm_file_parts p JOIN bc_dm_files f ON f.id = p.file_id WHERE f.msg_id=? AND f.uploader=?")->execute([$mid, $me]);
+                $pdo->prepare("DELETE FROM bc_dm_files WHERE msg_id=? AND uploader=?")->execute([$mid, $me]);
+            } catch (Throwable $e) { error_log('[dm] delete files failed: ' . get_class($e)); }
+        }
         if ($envRow) {
             try {
                 if ($env) $pdo->prepare("UPDATE bc_dm_agent_env SET iv=?, ct=? WHERE msg_id=?")->execute([(string)$env['iv'], (string)$env['ct'], $mid]);

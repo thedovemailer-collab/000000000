@@ -8797,6 +8797,9 @@ const ContactRow = React.memo(function ContactRow({
     if (prefetchTimer.current) { clearTimeout(prefetchTimer.current); prefetchTimer.current = null; }
   };
   React.useEffect(() => disarmPrefetch, []);   // no timer outlives the row
+  // Right-click, or press and hold on a touch screen: the contact's menu.
+  const openCtx = (e) => window.dispatchEvent(new CustomEvent('ctx', {detail: {e, msg: resolve()}}));
+  const hold = (typeof useLongPress === 'function') ? useLongPress(openCtx) : null;
 
   const isCustomer = stage==='customer'||stage==='vip';
   const isEsc = !!(escalated || stage==='escalated' || stage==='needs_help');
@@ -8808,7 +8811,8 @@ const ContactRow = React.memo(function ContactRow({
         data-active={isActive ? '1' : '0'}
         data-esc={isEsc ? '1' : '0'}
         onClick={()=>onOpen(resolve())}
-        onContextMenu={e=>{e.preventDefault(); window.dispatchEvent(new CustomEvent('ctx',{detail:{e,msg:resolve()}}));}}
+        onContextMenu={e=>{ e.preventDefault(); if (hold && hold.recent()) return; openCtx(e); }}
+        {...(hold ? hold.handlers : null)}
         data-name={name}
         style={{
           width:'100%', position:'relative', display:'flex', alignItems:'center',

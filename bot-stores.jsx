@@ -7737,6 +7737,7 @@ const DM_FILES = {
 function dmPreviewOf(row) {
   if (!row) return '';
   if (row.locked) return '🔒 Encrypted message';
+  if (row.del) return 'Message deleted';
   if ((row.mu || row.dmf) && !row.c) return row.mt === 'image' ? '📷 Photo' : row.mt === 'video' ? '🎬 Video' : row.mt === 'audio' ? '🎵 Audio' : '📎 ' + (row.mn || 'File');
   return row.c || '';
 }
@@ -7986,6 +7987,11 @@ const DM_STORE = {
       // CHAT): drawn from its decrypted copy once it's fetched. Otherwise a
       // file link becomes the attachment itself (see FILES IN DIRECT CHATS).
       // `src` keeps the text as sent for the agent's history.
+      // Deleted for everyone by its sender (see DM_STORE.deleteMessage).
+      if (body && body.k === 'del') {
+        const gone = { c: '', del: true, mu: '', mt: '', mn: '', ms: 0, mp: false, me: '', src: '', dmf: null };
+        return (mineOut && m.ai) ? { ...base, r: 'bot', agent: DM_AI.agentName(m.ai), aiId: m.ai, ...gone } : { ...base, ...gone };
+      }
       const sent = body && body.k === 'file' && body.f && Number(body.f.id) ? body.f : null;
       const file = sent ? null : dmFileFromText(text);
       const content = sent
@@ -8242,6 +8248,29 @@ const DM_STORE = {
     if (sent && Date.now() - sent > 48 * 3600 * 1000 - 60000) return false;
     return !this.sendBlocker(th.id);
   },
+  // ── DELETING YOUR OWN MESSAGES ─────────────────────────────────────
+  // "Delete for everyone": your own message (or your agent's), delivered,
+  // within the same 48 hours as editing. It's an edit to a sealed "deleted"
+  // marker, so it reaches the other side the way an edit does and the
+  // server still can't read anything; a file it carried is deleted too.
+  canDelete(tid, row) {
+    const th = this.threads.get(Number(tid));
+    if (!th || !row || row.r === 'in' || !row.sid || row._pending || row.err || row.locked || row.del) return false;
+    const sent = (row.raw && row.raw.ts ? row.raw.ts * 1000 : Date.parse(row.ts)) || 0;
+    if (sent && Date.now() - sent > 48 * 3600 * 1000 - 60000) return false;
+    return !this.sendBlocker(th.id);
+  },
+  async deleteMessage(tid, row) {
+    const th = this.threads.get(Number(tid));
+    if (!th || !this.canDelete(tid, row)) return false;
+    row._pending = 'delete';
+    this._syncConv(th); this.notify();
+    const hint = th.agentKeyHint && Date.now() - th.agentKeyHint.at < 60000 ? th.agentKeyHint.key : null;
+    const ok = await this._deliverEdit(th, row, '', 0, hint, true);
+    if (!ok) { row._pending = false; this._syncConv(th); this.notify(); return false; }
+    try { if (typeof DM_AI !== 'undefined' && DM_AI.noteEdited) DM_AI.noteEdited(th.id, row.sid, '[message deleted]'); } catch (_) {}
+    return true;
+  },
   // Resolves true once the server has the new text.
   async editMessage(tid, row, text) {
     const th = this.threads.get(Number(tid));
@@ -8263,7 +8292,7 @@ const DM_STORE = {
     try { if (typeof DM_AI !== 'undefined' && DM_AI.noteEdited) DM_AI.noteEdited(th.id, row.sid, next); } catch (_) {}
     return true;
   },
-  async _deliverEdit(th, row, text, attempt, agentKey) {
+  async _deliverEdit(th, row, text, attempt, agentKey, del = false) {
     try {
       const mine = DM_KEYS.current();
       const pk = th.peer.key;
@@ -8275,7 +8304,7 @@ const DM_STORE = {
         sender_key: mine.id, recipient_key: pk.id, uid: row.uid };
       const k = await DM_KEYS.keyFor(mine.id, pk.id, th.peer.id);
       if (!k) throw new Error('Missing key');
-      const body = { v: 1, k: 'text', t: text, at: Date.now() };
+      const body = del ? { v: 1, k: 'del', at: Date.now() } : { v: 1, k: 'text', t: text, at: Date.now() };
       const sealed = await DM_CRYPTO.seal(k, body, DM_CRYPTO.aad(env));
       let agentEnv = null;
       if (agentKey) {
@@ -8286,30 +8315,30 @@ const DM_STORE = {
         agentEnv = { key_id: agentKey.id, iv: ae.iv, ct: ae.ct };
       }
       const r = await apiFetch('dm_edit', { thread_id: th.id, id: row.sid, sender_key: mine.id, recipient_key: pk.id,
-        ...sealed, ...(agentEnv ? { agent_env: agentEnv } : {}) });
+        ...sealed, ...(agentEnv ? { agent_env: agentEnv } : {}), ...(del ? { deleted: 1 } : {}) });
       if (r && r.message) {
         const fresh = await this._decrypt(r.message);
         Object.assign(row, fresh, { _pending: false, err: '' }, this._keepStamp(row));
-        if (!row.ed) row.ed = Date.now();
+        if (!row.ed && !del) row.ed = Date.now();
         this._syncConv(th); this.notify();
         return true;
       }
       const code = r && (r.code || r.error);
       if (code === 'agent_env' && r.agent_key && attempt < 2) {
         this._checkAgentPin(th, r.agent_key);
-        return this._deliverEdit(th, row, text, attempt + 1, r.agent_key);
+        return this._deliverEdit(th, row, text, attempt + 1, r.agent_key, del);
       }
       if (code === 'peer_key_changed' && attempt < 1) {
         await this.refreshThreads();
         const why = this.sendBlocker(th.id);
         if (why) throw new Error(why);
-        return this._deliverEdit(this.threads.get(th.id) || th, row, text, attempt + 1, agentKey);
+        return this._deliverEdit(this.threads.get(th.id) || th, row, text, attempt + 1, agentKey, del);
       }
       if (code === 'stale_own_key') { DM_KEYS.init(AUTH_STORE.account); throw new Error('Your key changed on another device'); }
       if (code === 'blocked') th.blockedMe = true;
       throw new Error((r && r.error) || 'Not saved');
     } catch (e) {
-      bcToast('Couldn’t edit the message — ' + String(e && e.message || e), 'err');
+      bcToast('Couldn’t ' + (del ? 'delete' : 'edit') + ' the message — ' + String(e && e.message || e), 'err');
       return false;
     }
   },

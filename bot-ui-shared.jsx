@@ -762,6 +762,137 @@ const bcNoHover = () => {
   try { return !!(window.matchMedia && window.matchMedia('(hover: none)').matches); }
   catch (_) { return false; }
 };
+// ── PRESS AND HOLD ─────────────────────────────────────────────────
+// Touch screens have no right-click: holding a finger still on a message
+// or a contact for about half a second opens the same menu instead. Moving
+// the finger (scrolling) cancels it, the tap that ends a hold doesn't also
+// count as a click, and `recent()` lets the element ignore the browser's
+// own long-press contextmenu that Android sends a moment later.
+const BC_HOLD_MS = 460;
+const useLongPress = (onHold) => {
+  const st = React.useRef({ t: 0, x: 0, y: 0, fired: 0 });
+  const holdRef = React.useRef(onHold);
+  holdRef.current = onHold;
+  React.useEffect(() => () => clearTimeout(st.current.t), []);
+  return React.useMemo(() => {
+    const s = st.current;
+    const cancel = () => { clearTimeout(s.t); s.t = 0; };
+    return {
+      recent: () => Date.now() - s.fired < 900,
+      handlers: {
+        onTouchStart: (e) => {
+          cancel();
+          if (!holdRef.current || !e.touches || e.touches.length !== 1) return;
+          const t = e.touches[0];
+          s.x = t.clientX; s.y = t.clientY;
+          s.t = setTimeout(() => {
+            s.t = 0; s.fired = Date.now();
+            try { if (navigator.vibrate) navigator.vibrate(8); } catch (_) {}
+            holdRef.current({ clientX: s.x, clientY: s.y });
+          }, BC_HOLD_MS);
+        },
+        onTouchMove: (e) => {
+          if (!s.t || !e.touches || !e.touches[0]) return;
+          const t = e.touches[0];
+          if (Math.abs(t.clientX - s.x) > 8 || Math.abs(t.clientY - s.y) > 8) cancel();
+        },
+        onTouchEnd: (e) => { cancel(); if (Date.now() - s.fired < 700 && e.cancelable) e.preventDefault(); },
+        onTouchCancel: cancel,
+      },
+    };
+  }, []);
+};
+
+// ── CONTEXT MENU PIECES ─────────────────────────────────────────────
+// Line icons for every menu row (see CONTEXT MENUS in BotCommand.html).
+const CTX_ICONS = {
+  chat:    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>,
+  search:  <><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></>,
+  check:   <path d="M20 6L9 17l-5-5"/>,
+  checks:  <><path d="M18 7l-8.5 8.5L6 12"/><path d="M22 7l-8.5 8.5"/></>,
+  userx:   <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M17 8l5 5M22 8l-5 5"/></>,
+  resume:  <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></>,
+  bell:    <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></>,
+  belloff: <><path d="M13.7 21a2 2 0 0 1-3.4 0"/><path d="M18.6 13A17.9 17.9 0 0 1 18 8"/><path d="M6.3 6.3A6 6 0 0 0 6 8c0 7-3 9-3 9h14"/><path d="M18 8a6 6 0 0 0-9.3-5"/><path d="M2 2l20 20"/></>,
+  copy:    <><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>,
+  block:   <><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></>,
+  unblock: <><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></>,
+  trash:   <><path d="M3 6h18"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></>,
+  remove:  <><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></>,
+  reply:   <><path d="M9 17l-5-5 5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/></>,
+  edit:    <><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></>,
+  open:    <><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></>,
+  save:    <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></>,
+  agentoff:<><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 11-5.7"/><path d="M17 17h5"/></>,
+};
+const CtxIco = ({name}) => (
+  <span className="ctx-ico" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      {CTX_ICONS[name] || null}
+    </svg>
+  </span>
+);
+// A menu row: icon, label.
+const CtxRow = ({icon, label, onClick, danger = false, disabled = false}) => (
+  <button type="button" role="menuitem" className={`ctx-row${danger ? ' ctx-del' : ''}`} disabled={disabled}
+    onClick={() => { if (!disabled) onClick(); }}>
+    <CtxIco name={icon}/><span className="ctx-lbl">{label}</span>
+  </button>
+);
+// Where the menu goes: at the pointer, opening left / up when it would run
+// off the right / bottom edge, and growing out of the point it was opened
+// from. Measured after it renders, so any height fits. `ay`: the top of the
+// thing it belongs to (a held message), so a menu that has to open upward
+// goes above that instead of over it.
+const useCtxPlace = (ref, x, y, deps, ay = null) => {
+  const [pos, setPos] = React.useState({ left: x, top: y, ox: 0, oy: 0 });
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // The layout size: the rect is mid scale-in when this runs.
+    const r = { width: el.offsetWidth, height: el.offsetHeight };
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let left = x + r.width + 8 > vw ? x - r.width : x;
+    let top  = y + r.height + 8 > vh ? (ay != null ? ay - r.height : y - r.height) : y;
+    left = Math.max(8, Math.min(left, vw - r.width - 8));
+    top  = Math.max(8, Math.min(top,  vh - r.height - 8));
+    const ox = Math.max(0, Math.min(r.width, x - left)), oy = Math.max(0, Math.min(r.height, y - top));
+    if (left !== pos.left || top !== pos.top || ox !== pos.ox || oy !== pos.oy) setPos({ left, top, ox, oy });
+  }, deps);   // eslint-disable-line react-hooks/exhaustive-deps
+  return { left: pos.left, top: pos.top, '--ctx-ox': pos.ox + 'px', '--ctx-oy': pos.oy + 'px' };
+};
+// Closes on a press outside it (mouse or finger), another right-click, Esc,
+// a resize or the window losing focus. `onEsc` handles Esc first when given
+// (a confirm step backs out instead of closing).
+const useCtxDismiss = (ref, onClose, onEsc) => {
+  const closeRef = React.useRef(onClose); closeRef.current = onClose;
+  const escRef = React.useRef(onEsc); escRef.current = onEsc;
+  React.useEffect(() => {
+    const down = (e) => { if (ref.current && !ref.current.contains(e.target)) closeRef.current(); };
+    const key = (e) => {
+      if (e.key !== 'Escape') return;
+      e.preventDefault(); e.stopPropagation();
+      if (!(escRef.current && escRef.current())) closeRef.current();
+    };
+    const away = () => closeRef.current();
+    const t = setTimeout(() => {
+      window.addEventListener('pointerdown', down, true);
+      window.addEventListener('contextmenu', down, true);
+    }, 0);
+    window.addEventListener('keydown', key, true);
+    window.addEventListener('resize', away);
+    window.addEventListener('blur', away);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('contextmenu', down, true);
+      window.removeEventListener('keydown', key, true);
+      window.removeEventListener('resize', away);
+      window.removeEventListener('blur', away);
+    };
+  }, []);   // eslint-disable-line react-hooks/exhaustive-deps
+};
+
 const bcInHost = () => {
   try { return !!(window.BotBridge && typeof window.BotBridge.isWebView2 === 'function' && window.BotBridge.isWebView2()); }
   catch (_) { return false; }
@@ -775,7 +906,7 @@ const FileChip = ({name, size, kind, url, onRemove, compact=false, pending=false
     if (!openable) return;
     e.stopPropagation();
     if (bcInHost()) { e.preventDefault(); bcBridgeSend('openMedia', { url, name: label }); }
-    else { try { window.open(url, '_blank', 'noopener'); } catch (_) {} }
+    else bcOpenInBrowser(url);
   };
   const save = (e) => {
     e.stopPropagation();
@@ -977,7 +1108,7 @@ const FileCard = ({name, size, kind, url, pending=false, error=''}) => {
     if (!openable) return;
     e.stopPropagation();
     if (bcInHost()) { e.preventDefault(); bcBridgeSend('openMedia', { url, name: label }); }
-    else { try { window.open(url, '_blank', 'noopener'); } catch (_) {} }
+    else bcOpenInBrowser(url);
   };
   const save = (e) => {
     e.stopPropagation();
@@ -1366,6 +1497,22 @@ const bcYtStart = (url) => {
   const m = /[?&#](?:t|start)=(\d+)(?:s)?/i.exec(String(url || ''));
   return m ? parseInt(m[1], 10) : 0;
 };
+// Open a file in a browser tab. Browsers refuse to open a data: URL as a
+// page, and attachments (direct-chat files especially) are data: URLs, so
+// those open through a blob: URL instead.
+const bcOpenInBrowser = (url) => {
+  if (!url) return;
+  if (/^data:/i.test(url)) {
+    const w = window.open('', '_blank');
+    fetch(url).then(r => r.blob()).then(b => {
+      const u = URL.createObjectURL(b);
+      if (w) w.location.href = u; else window.open(u, '_blank', 'noopener');
+      setTimeout(() => URL.revokeObjectURL(u), 60000);
+    }).catch(() => { try { if (w) w.close(); } catch (_) {} });
+    return;
+  }
+  try { window.open(url, '_blank', 'noopener'); } catch (_) {}
+};
 const bcOpenExternal = (url) => {
   if (!url) return;
   if (bcInHost()) { bcBridgeSend('openMedia', { url, name: 'YouTube' }); return; }
@@ -1411,6 +1558,52 @@ const ensureYouTubeStyles = () => {
   background: rgba(255,255,255,0.08); cursor: pointer; text-decoration: none; }
 .bc-ytbox-btn:hover { background: rgba(255,255,255,0.14); color: #fff; }
 @media (prefers-reduced-motion: reduce) { .bc-ytbox, .bc-ytbox-player { animation: none; } .bc-yt-play { transition: none; } }
+/* The card's "play in the mini player" button, at the end of its footer. */
+.bc-yt-foot { position: relative; }
+.bc-yt-mini { margin-left: auto; flex: 0 0 auto; width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center;
+  color: rgba(200,204,222,0.62); transition: background-color 120ms ease, color 120ms ease; }
+.bc-yt-mini:hover, .bc-yt-mini:focus-visible { background: rgba(255,255,255,0.08); color: #fff; outline: none; }
+
+/* ── MINI PLAYER ──
+   A small floating player that keeps going while you move around the app.
+   The frame stays out of the way: a hairline edge and a soft shadow, the
+   video filling it corner to corner. A slim bar fades in over the top of
+   the video on hover (always there, faintly, on touch screens): drag it to
+   move the player, grab any corner to resize (it keeps its 16:9 shape). */
+.bc-ytmini { position: fixed; z-index: 9500; border-radius: 12px; overflow: hidden; background: #000;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 20px 50px -14px rgba(0,0,0,0.75), 0 4px 14px rgba(0,0,0,0.35);
+  animation: bcYtMiniIn 220ms cubic-bezier(0.16,1,0.3,1); touch-action: none; }
+@keyframes bcYtMiniIn { from { opacity: 0; transform: translateY(10px) scale(0.97); } to { opacity: 1; transform: none; } }
+.bc-ytmini iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.bc-ytmini[data-busy="1"] iframe { pointer-events: none; }
+.bc-ytmini-bar { position: absolute; left: 0; right: 0; top: 0; z-index: 2; height: 36px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 4px; padding: 0 6px 6px 10px;
+  background: linear-gradient(180deg, rgba(6,7,12,0.82) 0%, rgba(6,7,12,0.45) 60%, rgba(6,7,12,0) 100%);
+  opacity: 0; transition: opacity 180ms ease; cursor: grab; }
+.bc-ytmini[data-show="1"] .bc-ytmini-bar, .bc-ytmini[data-busy="1"] .bc-ytmini-bar { opacity: 1; }
+.bc-ytmini[data-touch="1"]:not([data-show="1"]) .bc-ytmini-bar { opacity: 0.85; }
+.bc-ytmini[data-busy="1"] .bc-ytmini-bar { cursor: grabbing; }
+.bc-ytmini-title { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 7px;
+  font-size: 11.5px; font-weight: 500; letter-spacing: -0.005em; color: rgba(255,255,255,0.86);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
+.bc-ytmini-title > span { overflow: hidden; text-overflow: ellipsis; }
+.bc-ytmini-btn { all: unset; box-sizing: border-box; flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.82);
+  transition: background-color 120ms ease, color 120ms ease; }
+.bc-ytmini-btn:hover, .bc-ytmini-btn:focus-visible { background: rgba(255,255,255,0.14); color: #fff; }
+.bc-ytmini-rz { position: absolute; z-index: 3; width: 16px; height: 16px; touch-action: none; }
+.bc-ytmini-rz[data-c="nw"] { left: 0; top: 0; cursor: nwse-resize; }
+.bc-ytmini-rz[data-c="ne"] { right: 0; top: 0; cursor: nesw-resize; }
+.bc-ytmini-rz[data-c="sw"] { left: 0; bottom: 0; cursor: nesw-resize; }
+.bc-ytmini-rz[data-c="se"] { right: 0; bottom: 0; cursor: nwse-resize; }
+/* The bottom corners show a faint grip on hover, where a resize is expected. */
+.bc-ytmini-rz[data-c="se"]::after, .bc-ytmini-rz[data-c="sw"]::after { content: ""; position: absolute; bottom: 4px; width: 7px; height: 7px;
+  border-bottom: 1.5px solid rgba(255,255,255,0.55); opacity: 0; transition: opacity 180ms ease; }
+.bc-ytmini-rz[data-c="se"]::after { right: 4px; border-right: 1.5px solid rgba(255,255,255,0.55); border-bottom-right-radius: 3px; }
+.bc-ytmini-rz[data-c="sw"]::after { left: 4px; border-left: 1.5px solid rgba(255,255,255,0.55); border-bottom-left-radius: 3px; }
+.bc-ytmini[data-show="1"] .bc-ytmini-rz::after { opacity: 1; }
+@media (pointer: coarse) { .bc-ytmini-rz { width: 28px; height: 28px; } .bc-ytmini-btn { width: 32px; height: 32px; } .bc-ytmini-bar { height: 42px; } }
+@media (prefers-reduced-motion: reduce) { .bc-ytmini { animation: none; } }
 `;
   document.head.appendChild(st);
 };
@@ -1421,8 +1614,178 @@ const BcYtLogo = ({s = 14}) => (
   </svg>
 );
 
-const YouTubeLightbox = ({id, url, title, onClose}) => {
+// ── WHERE A PLAYING VIDEO IS ──
+// The embed reports its current time over postMessage once asked to
+// (enablejsapi=1 and a 'listening' message), which is how the lightbox and
+// the mini player hand a video to each other without starting it over.
+const bcYtEmbedSrc = (id, start) => {
+  let origin = '';
+  try { if (/^https?:/i.test(location.origin)) origin = '&origin=' + encodeURIComponent(location.origin); } catch (_) {}
+  return `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&playsinline=1&enablejsapi=1${origin}${start ? `&start=${Math.floor(start)}` : ''}`;
+};
+const useYtTime = (frameRef, start) => {
+  const timeRef = React.useRef(start || 0);
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const f = frameRef.current;
+      if (!f || e.source !== f.contentWindow || typeof e.data !== 'string') return;
+      try {
+        const d = JSON.parse(e.data);
+        const t = d && d.info && d.info.currentTime;
+        if (typeof t === 'number' && t >= 0) timeRef.current = t;
+      } catch (_) {}
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
+  }, [frameRef]);
+  const onLoad = React.useCallback(() => {
+    const f = frameRef.current;
+    try { f && f.contentWindow && f.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*'); } catch (_) {}
+  }, [frameRef]);
+  return [timeRef, onLoad];
+};
+
+// ── MINI PLAYER ──────────────────────────────────────────────────────
+// One at a time, app-wide, drawn in its own root so it keeps playing while
+// you change chats or open settings. BC_YT_MINI.open({ id, url, title, t })
+// starts (or replaces) it; the player's expand button goes back to the
+// full-size lightbox at the same point.
+const BC_YT_MINI = {
+  video: null,          // { id, url, title, t, key }
+  full: false,          // showing the full-size lightbox instead
+  subs: new Set(),
+  sub(fn) { this.subs.add(fn); return () => this.subs.delete(fn); },
+  notify() { this.subs.forEach(fn => { try { fn(); } catch (_) {} }); },
+  open(v) {
+    if (!v || !v.id) return;
+    this.video = { ...v, key: Date.now() };
+    this.full = false;
+    ensureYtMiniRoot();
+    this.notify();
+  },
+  expand(t) { if (this.video) { this.video = { ...this.video, t, key: Date.now() }; this.full = true; this.notify(); } },
+  close() { this.video = null; this.full = false; this.notify(); },
+};
+const YT_MINI_LS = 'bc.ytmini.geom';
+const YT_MINI_MIN_W = 220;
+const ytMiniMaxW = () => Math.max(YT_MINI_MIN_W, Math.min(960, window.innerWidth - 16));
+const ytMiniClamp = (g) => {
+  const w = Math.max(YT_MINI_MIN_W, Math.min(ytMiniMaxW(), g.w));
+  const h = w * 9 / 16;
+  return { w, x: Math.max(8, Math.min(window.innerWidth - w - 8, g.x)), y: Math.max(8, Math.min(window.innerHeight - h - 8, g.y)) };
+};
+const ytMiniStartGeom = () => {
+  try {
+    const g = JSON.parse(localStorage.getItem(YT_MINI_LS) || 'null');
+    if (g && Number.isFinite(g.x) && Number.isFinite(g.y) && Number.isFinite(g.w)) return ytMiniClamp(g);
+  } catch (_) {}
+  // Bottom right, clear of the chat composer.
+  const w = Math.min(380, window.innerWidth - 24);
+  return ytMiniClamp({ w, x: window.innerWidth - w - 16, y: window.innerHeight - w * 9 / 16 - 104 });
+};
+const ensureYtMiniRoot = () => {
+  if (typeof document === 'undefined' || window.__bcYtMiniRoot) return;
+  const el = document.createElement('div');
+  el.id = 'bc-ytmini-root';
+  document.body.appendChild(el);
+  window.__bcYtMiniRoot = ReactDOM.createRoot(el);
+  window.__bcYtMiniRoot.render(<YtMiniHost/>);
+};
+const YtMiniHost = () => {
+  const [, bump] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => BC_YT_MINI.sub(bump), []);
+  const v = BC_YT_MINI.video;
+  if (!v) return null;
+  if (BC_YT_MINI.full) {
+    return <YouTubeLightbox key={v.key} id={v.id} url={v.url} title={v.title} start={v.t}
+      onClose={() => BC_YT_MINI.close()} onMini={(t) => BC_YT_MINI.open({ ...v, t })}/>;
+  }
+  return <YtMiniPlayer key={v.key} video={v}/>;
+};
+const YtMiniPlayer = ({video}) => {
   ensureYouTubeStyles();
+  const frameRef = React.useRef(null);
+  const [timeRef, onLoad] = useYtTime(frameRef, video.t);
+  const [src] = React.useState(() => bcYtEmbedSrc(video.id, video.t));
+  const [geom, setGeom] = React.useState(ytMiniStartGeom);
+  const [busy, setBusy] = React.useState(false);
+  const [show, setShow] = React.useState(false);
+  const touch = bcNoHover();
+  const geomRef = React.useRef(geom); geomRef.current = geom;
+  const save = (g) => { try { localStorage.setItem(YT_MINI_LS, JSON.stringify(g)); } catch (_) {} };
+  React.useEffect(() => {
+    const onResize = () => setGeom(g => ytMiniClamp(g));
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  // Drag (from the bar) and resize (from a corner) share one pointer path.
+  const startGesture = (mode, corner) => (e) => {
+    if (e.button != null && e.button !== 0) return;
+    if (mode === 'move' && e.target.closest && e.target.closest('button')) return;
+    e.preventDefault(); e.stopPropagation();
+    const el = e.currentTarget;
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    const s = { px: e.clientX, py: e.clientY, ...geomRef.current, h: geomRef.current.w * 9 / 16 };
+    setBusy(true);
+    const move = (ev) => {
+      const dx = ev.clientX - s.px, dy = ev.clientY - s.py;
+      if (mode === 'move') { setGeom(ytMiniClamp({ ...s, x: s.x + dx, y: s.y + dy })); return; }
+      const sx = corner.includes('e') ? 1 : -1, sy = corner.includes('s') ? 1 : -1;
+      const byX = sx * dx, byY = sy * dy * 16 / 9;
+      const w = Math.max(YT_MINI_MIN_W, Math.min(ytMiniMaxW(), s.w + (Math.abs(byX) > Math.abs(byY) ? byX : byY)));
+      const h = w * 9 / 16;
+      setGeom(ytMiniClamp({ w, x: sx > 0 ? s.x : s.x + s.w - w, y: sy > 0 ? s.y : s.y + s.h - h }));
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      setBusy(false);
+      save(geomRef.current);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+  const h = geom.w * 9 / 16;
+  const watch = `https://www.youtube.com/watch?v=${video.id}${timeRef.current >= 1 ? `&t=${Math.floor(timeRef.current)}s` : ''}`;
+  return ReactDOM.createPortal(
+    <div className="bc-ytmini" role="dialog" aria-label={video.title ? `Mini player: ${video.title}` : 'YouTube mini player'}
+      data-busy={busy ? '1' : undefined} data-show={show ? '1' : undefined} data-touch={touch ? '1' : undefined}
+      style={{ left: geom.x, top: geom.y, width: geom.w, height: h }}
+      onPointerEnter={() => setShow(true)} onPointerLeave={() => { if (!busy) setShow(false); }}>
+      <iframe ref={frameRef} src={src} title={video.title || 'YouTube video'} onLoad={onLoad}
+        allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen/>
+      <div className="bc-ytmini-bar" onPointerDown={startGesture('move')}>
+        <span className="bc-ytmini-title"><BcYtLogo s={14}/><span>{video.title || 'YouTube'}</span></span>
+        <button type="button" className="bc-ytmini-btn" title="Open on YouTube" aria-label="Open on YouTube"
+          onClick={() => bcOpenExternal(watch)}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>
+        </button>
+        <button type="button" className="bc-ytmini-btn" title="Full size" aria-label="Full size"
+          onClick={() => BC_YT_MINI.expand(timeRef.current)}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+        </button>
+        <button type="button" className="bc-ytmini-btn" title="Close" aria-label="Close mini player"
+          onClick={() => BC_YT_MINI.close()}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      {['nw', 'ne', 'sw', 'se'].map(c => (
+        <span key={c} className="bc-ytmini-rz" data-c={c} aria-hidden="true" onPointerDown={startGesture('size', c)}/>
+      ))}
+    </div>,
+    document.body
+  );
+};
+
+// `start` / `onMini`: when the lightbox is part of a hand-off with the mini
+// player — where to start, and how to send the video back to it.
+const YouTubeLightbox = ({id, url, title, onClose, start: startAt, onMini}) => {
+  ensureYouTubeStyles();
+  const frameRef = React.useRef(null);
   React.useEffect(() => {
     const onKey = (e) => {
       if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); onClose(); }
@@ -1430,17 +1793,28 @@ const YouTubeLightbox = ({id, url, title, onClose}) => {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   }, [onClose]);
-  const start = bcYtStart(url);
-  const src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1${start ? `&start=${start}` : ''}`;
-  const watch = `https://www.youtube.com/watch?v=${id}${start ? `&t=${start}s` : ''}`;
+  const start = startAt != null ? startAt : bcYtStart(url);
+  const [timeRef, onLoad] = useYtTime(frameRef, start);
+  const [src] = React.useState(() => bcYtEmbedSrc(id, start));
+  const watch = `https://www.youtube.com/watch?v=${id}${start ? `&t=${Math.floor(start)}s` : ''}`;
+  const toMini = () => {
+    const t = timeRef.current;
+    if (onMini) onMini(t);
+    else { onClose(); BC_YT_MINI.open({ id, url, title, t }); }
+  };
   return ReactDOM.createPortal(
     <div className="bc-ytbox" onClick={onClose} role="dialog" aria-label="YouTube video">
       <div className="bc-ytbox-player" onClick={e => e.stopPropagation()}>
-        <iframe src={src} title={title || 'YouTube video'} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen/>
+        <iframe ref={frameRef} src={src} onLoad={onLoad} title={title || 'YouTube video'} allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen/>
       </div>
       <div className="bc-ytbox-bar" onClick={e => e.stopPropagation()}>
         <span className="bc-ytbox-title"><BcYtLogo s={16}/>{title || 'YouTube'}</span>
         <span style={{flex: 1}}/>
+        <button type="button" className="bc-ytbox-btn" onClick={toMini} title="Keep playing in a small window you can move and resize">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="16" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1" fill="currentColor" stroke="none"/></svg>
+          Mini player
+        </button>
         <button type="button" className="bc-ytbox-btn" onClick={() => bcOpenExternal(watch)} title="Open on YouTube">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M14 4h6v6M20 4l-9 9M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>
@@ -1480,6 +1854,12 @@ const YouTubeCard = ({url, caption = '', corners = null, inline = false, full = 
           <span className="bc-yt-txt">
             {cap && <span className={'bc-yt-cap' + (full ? ' is-full' : '')}>{cap}</span>}
             <span className="bc-yt-src">YouTube · Play here</span>
+          </span>
+          <span className="bc-yt-mini" role="button" tabIndex={0} title="Play in the mini player" aria-label="Play in the mini player"
+            onClick={e => { e.stopPropagation(); BC_YT_MINI.open({ id, url, title: cap, t: bcYtStart(url) }); }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); BC_YT_MINI.open({ id, url, title: cap, t: bcYtStart(url) }); } }}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <rect x="3" y="4" width="18" height="16" rx="2"/><rect x="12" y="12" width="7" height="5" rx="1" fill="currentColor" stroke="none"/></svg>
           </span>
         </span>
       </button>
@@ -1691,10 +2071,7 @@ const ensureMsgLifecycleStyles = () => {
     .bc-cbar-x{flex-shrink:0;width:24px;height:24px;border-radius:7px;border:none;background:transparent;
       color:var(--t3);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
     .bc-cbar-x:hover{background:rgba(255,255,255,.07);color:var(--t1)}
-    .ctx.bc-mctx{width:208px}
-    .ctx.bc-mctx .ctx-row{border:none;background:transparent;cursor:pointer;text-align:left;font-family:inherit}
-    .ctx.bc-mctx .ctx-row[disabled]{opacity:.38;cursor:default;background:transparent}
-    .ctx.bc-mctx .ctx-note{padding:6px 11px 8px;font-size:10.5px;line-height:1.4;color:var(--t3)}
+    /* Message menu: see CONTEXT MENUS in BotCommand.html. */
     @media (prefers-reduced-motion: reduce){
       .ipc.ipc-exit{animation-duration:.01s}
       .bc-cbar{animation:none}
@@ -3161,15 +3538,28 @@ const ChatBubbleRowImpl = ({m, msg, sz=28, style={}, isGroupStart=true, isGroupE
   // ── Right-click → message menu ──
   // Real conversations only (not the ghost). The open chat listens for
   // 'bc-msg-ctx' and draws the menu; the row just reports what was hit.
+  // On a touch screen, pressing and holding the bubble does the same.
   const canCtx = !!(msg && !msg.__ghost && msg.p && msg.id);
+  const openCtx = (x, y, ay) => {
+    try {
+      window.dispatchEvent(new CustomEvent('bc-msg-ctx', {
+        detail: { x, y, ay, convId: msg.id, row: m, ti },
+      }));
+    } catch (_) {}
+  };
+  // A hold opens the menu just under the message (above it when there's no
+  // room), lined up with the message's own edge, so the finger and the menu
+  // don't cover what it's about.
+  const hold = useLongPress(canCtx ? (p) => {
+    const b = bubbleRef.current && bubbleRef.current.getBoundingClientRect();
+    if (!b) { openCtx(p.clientX, p.clientY); return; }
+    openCtx(isIn ? b.left : b.right, b.bottom + 6, b.top - 6);
+  } : null);
   const onBubbleCtx = canCtx ? (e) => {
     e.preventDefault();
     e.stopPropagation();
-    try {
-      window.dispatchEvent(new CustomEvent('bc-msg-ctx', {
-        detail: { x: e.clientX, y: e.clientY, convId: msg.id, row: m, ti },
-      }));
-    } catch (_) {}
+    if (hold.recent()) return;          // Android's own long-press, just after ours
+    openCtx(e.clientX, e.clientY);
   } : undefined;
   const jumpToQuote = (e) => {
     e.stopPropagation();
@@ -3253,6 +3643,7 @@ const ChatBubbleRowImpl = ({m, msg, sz=28, style={}, isGroupStart=true, isGroupE
           the same-side group) shrink so a run reads as one stack. */}
       <div ref={bubbleRef} className={`bubble ${cls}`}
         onContextMenu={onBubbleCtx}
+        {...(canCtx ? hold.handlers : null)}
         onAnimationEnd={onEnterEnd}
         // 'in' | 'out' | null. Null renders no attribute at all, so a
         // bubble that isn't new carries none of the animation CSS.
@@ -4035,21 +4426,10 @@ const CtxMenu = ({x, y, msg, onClose, onOpen, inChat = false}) => {
   const isMarkedCustomer = isCustomerMarked(msg);
   const isEscalatedConv  = !!(msg.escalated || msg.stage === 'escalated' || msg.stage === 'needs_help');
 
-  React.useEffect(()=>{
-    const h = e=>{ if(ref.current&&!ref.current.contains(e.target)) onClose(); };
-    setTimeout(()=>window.addEventListener('mousedown',h),0);
-    return ()=>window.removeEventListener('mousedown',h);
-  },[]);
-
-  // Esc closes the confirm sub-state if open, otherwise closes the menu.
-  React.useEffect(() => {
-    const onKey = (e) => {
-      if (e.key !== 'Escape') return;
-      if (confirm) setConfirm(null); else onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [confirm, onClose]);
+  // Esc backs out of the confirm step if it's open, otherwise closes.
+  const confirmRef = React.useRef(null); confirmRef.current = confirm;
+  useCtxDismiss(ref, onClose, () => { if (!confirmRef.current) return false; setConfirm(null); return true; });
+  const place = useCtxPlace(ref, x, y, [!!confirm]);
 
   // ── HANDLERS ───────────────────────────────────────────────────────
   // Each handler mutates client state optimistically and rolls back on
@@ -4153,9 +4533,9 @@ const CtxMenu = ({x, y, msg, onClose, onOpen, inChat = false}) => {
       title: 'Delete this contact?',
       body:  'You can either remove just the contact from your list (keeps message history in the database for accounting / audit), or wipe everything including messages, AI memory, captured profile and purchase records.',
       buttons: [
-        { label: 'Cancel', kind: 'plain',  fn: () => setConfirm(null) },
         { label: 'Delete only',     kind: 'warn',   fn: () => { setConfirm(null); doDeleteConv();      onClose(); } },
         { label: 'Delete + wipe history', kind: 'danger', fn: () => { setConfirm(null); doDeleteWithWipe(); onClose(); } },
+        { label: 'Cancel', kind: 'plain',  fn: () => setConfirm(null) },
       ],
     });
   };
@@ -4176,7 +4556,6 @@ const CtxMenu = ({x, y, msg, onClose, onOpen, inChat = false}) => {
       title: 'Delete this contact?',
       body:  'Delete only removes the chat from your list (they keep their copy, and their purchases and keys stay on record). Delete + wipe also erases their profile, purchases and keys, AI memory, follow-ups, your agent’s state for this chat and any unpaid invoice.',
       buttons: [
-        { label: 'Cancel', kind: 'plain', fn: () => setConfirm(null) },
         { label: 'Delete only', kind: 'warn', fn: async () => {
             setConfirm(null); onClose();
             if (await DM_STORE.hide(dmTid)) bcToast(name + ' removed from your contacts', 'ok');
@@ -4185,85 +4564,66 @@ const CtxMenu = ({x, y, msg, onClose, onOpen, inChat = false}) => {
             setConfirm(null); onClose();
             if (await DM_STORE.wipe(dmTid)) bcToast(name + ' and all their data deleted', 'ok');
           } },
+        { label: 'Cancel', kind: 'plain', fn: () => setConfirm(null) },
       ],
     });
   };
   const dmGroups = !isDirect ? null : [
     [
-      ...(inChat ? [] : [{icon:'▸', label:'Open Chat', fn:()=>{ onOpen(msg); }}]),
-      ...(dmTh && dmTh.unread > 0 ? [{icon:'✓', label:'Mark as Read', fn:()=>{ DM_STORE.markRead(dmTid); onClose(); }}] : []),
+      ...(inChat ? [] : [{icon:'chat', label:'Open chat', fn:()=>{ onOpen(msg); }}]),
+      ...(dmTh && dmTh.unread > 0 ? [{icon:'checks', label:'Mark as read', fn:()=>{ DM_STORE.markRead(dmTid); onClose(); }}] : []),
     ],
     ...(dmEff && dmEff.agent ? [[
       ...(dmHold && dmHold.kind === 'escalated' ? [
-        {icon:'↺', label:'Resume Agent', fn:()=>{ DM_AI.resume(dmTid).catch(e => bcToast(String(e.message || e), 'err')); onClose(); }},
+        {icon:'resume', label:'Resume agent', fn:()=>{ DM_AI.resume(dmTid).catch(e => bcToast(String(e.message || e), 'err')); onClose(); }},
       ] : []),
-      {icon:'○', label: dmEff.auto ? 'Don’t Answer This Chat' : 'Unassign ' + (dmEff.agent.name || 'Agent'),
+      {icon:'agentoff', label: dmEff.auto ? 'Don’t answer this chat' : 'Unassign ' + (dmEff.agent.name || 'agent'),
         fn:()=>{ DM_AI.assign(dmTid, 0).catch(e => bcToast(String(e.message || e), 'err')); onClose(); }},
     ]] : []),
     [
-      {icon:'⊡', label:'Copy Handle', fn:()=>{ copyHandle(); onClose(); }},
+      {icon:'copy', label:'Copy handle', fn:()=>{ copyHandle(); onClose(); }},
     ],
     [
-      {icon: dmTh && dmTh.blocked ? '⊕' : '⊗', label: dmTh && dmTh.blocked ? 'Unblock User' : 'Block User',
+      {icon: dmTh && dmTh.blocked ? 'unblock' : 'block', label: dmTh && dmTh.blocked ? 'Unblock user' : 'Block user',
         fn:()=>{ DM_STORE.block(dmTid, !(dmTh && dmTh.blocked)); onClose(); }, d: !(dmTh && dmTh.blocked)},
-      {icon:'✕', label:'Delete Contact…', fn:()=>{ requestDmDelete(); }, d:true},
+      {icon:'trash', label:'Delete contact…', fn:()=>{ requestDmDelete(); }, d:true},
     ],
   ].filter(g => g.length);
 
-  const lx=Math.min(x,window.innerWidth-200), ly=Math.min(y,window.innerHeight-430);
   const groups = dmGroups || [
     [
-      {icon:'▸', label:'Open Chat',     fn:()=>{ onOpen(msg); }},
-      {icon:'◈', label:'Open Search',   fn:()=>{ try { window.dispatchEvent(new CustomEvent('bc-open-chat-search', { detail: { convId: msg.id } })); } catch(_){} onClose(); }},
+      {icon:'chat',   label:'Open chat',      fn:()=>{ onOpen(msg); }},
+      {icon:'search', label:'Search in chat', fn:()=>{ try { window.dispatchEvent(new CustomEvent('bc-open-chat-search', { detail: { convId: msg.id } })); } catch(_){} onClose(); }},
     ],
     [
       // Replaces the "Verified customer" switch from the old profile popup.
-      {icon: isMarkedCustomer ? '○' : '✓', label: isMarkedCustomer ? 'Remove Customer Mark' : 'Mark as Customer',
+      {icon: isMarkedCustomer ? 'userx' : 'check', label: isMarkedCustomer ? 'Remove customer mark' : 'Mark as customer',
         fn:()=>{ setCustomerMark(msg.id, !isMarkedCustomer); onClose(); }},
       ...(isEscalatedConv ? [
-        {icon:'↺', label:'Resolve & Resume AI', fn:()=>{ resolveConversationEscalation(msg.id); onClose(); }},
+        {icon:'resume', label:'Resolve & resume AI', fn:()=>{ resolveConversationEscalation(msg.id); onClose(); }},
       ] : []),
     ],
     [
-      {icon: isMuted ? '◉' : '◎', label: isMuted ? 'Unmute' : 'Mute', fn:()=>{ doMute(!isMuted); onClose(); }},
-      {icon:'⊡', label:'Copy Handle', fn:()=>{ copyHandle(); onClose(); }},
+      {icon: isMuted ? 'bell' : 'belloff', label: isMuted ? 'Unmute' : 'Mute', fn:()=>{ doMute(!isMuted); onClose(); }},
+      {icon:'copy', label:'Copy handle', fn:()=>{ copyHandle(); onClose(); }},
     ],
     [
-      {icon: isBlocked ? '⊕' : '⊗', label: isBlocked ? 'Unblock User' : 'Block User', fn:()=>{ doBlock(!isBlocked); onClose(); }, d: !isBlocked},
-      {icon:'✕', label:'Delete Contact…', fn:()=>{ requestDelete(); }, d:true},
+      {icon: isBlocked ? 'unblock' : 'block', label: isBlocked ? 'Unblock user' : 'Block user', fn:()=>{ doBlock(!isBlocked); onClose(); }, d: !isBlocked},
+      {icon:'trash', label:'Delete contact…', fn:()=>{ requestDelete(); }, d:true},
     ],
   ];
 
   // CONFIRM SUB-STATE — replaces the menu body with a small panel.
   if (confirm) {
     return (
-      <div className="ctx" style={{left:lx, top:ly, width: 240}} ref={ref}>
-        <div style={{padding: '12px 14px 10px'}}>
-          <div style={{fontSize: 12.5, fontWeight: 600, color: 'var(--t1)', marginBottom: 6}}>
-            {confirm.title}
-          </div>
-          <div style={{fontSize: 11, color: 'var(--t3)', lineHeight: 1.45}}>
-            {confirm.body}
-          </div>
+      <div className="ctx" style={{...place, width: 260}} ref={ref} role="dialog" aria-label={confirm.title}>
+        <div className="ctx-confirm">
+          <div className="ctx-confirm-t">{confirm.title}</div>
+          <div className="ctx-confirm-b">{confirm.body}</div>
         </div>
-        <div className="ctx-line"/>
-        <div style={{display:'flex', flexDirection:'column', padding: 6, gap: 4}}>
+        <div className="ctx-btns">
           {confirm.buttons.map((b, i) => (
-            <button key={i}
-              onClick={b.fn}
-              className={`ctx-row${b.kind==='danger' ? ' ctx-del' : ''}`}
-              style={{
-                justifyContent: 'center',
-                fontWeight: b.kind==='plain' ? 400 : 500,
-                color: b.kind==='warn'   ? 'rgba(220,180,120,0.85)'
-                     : b.kind==='danger' ? undefined  // .ctx-del already styles this
-                     : undefined,
-                background: b.kind==='warn' ? 'rgba(220,180,120,0.06)' : undefined,
-                border: b.kind==='warn' ? '1px solid rgba(220,180,120,0.18)' : undefined,
-                borderRadius: 6,
-              }}>
-              {b.label}
-            </button>
+            <button key={i} type="button" className="ctx-btn" data-kind={b.kind} onClick={b.fn}>{b.label}</button>
           ))}
         </div>
       </div>
@@ -4271,21 +4631,19 @@ const CtxMenu = ({x, y, msg, onClose, onOpen, inChat = false}) => {
   }
 
   return (
-    <div className="ctx" style={{left:lx,top:ly}} ref={ref}>
+    <div className="ctx" style={place} ref={ref} role="menu" aria-label={`${msg.name || 'Contact'} actions`}>
       <div className="ctx-top">
-        <Ava name={msg.name} col={msg.col} sz={22} src={msg.avatar}/>
+        <Ava name={msg.name} col={msg.col} sz={26} src={msg.avatar}/>
         <div style={{minWidth:0}}>
-          <div style={{fontSize:12,fontWeight:600,color:'var(--t1)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{msg.name}</div>
-          <div style={{fontSize:10,color:'var(--t3)'}}>{msg.handle}</div>
+          <div className="ctx-top-name">{msg.name}</div>
+          {msg.handle && <div className="ctx-top-sub">{msg.handle}</div>}
         </div>
       </div>
       {groups.map((g,gi)=>(
         <React.Fragment key={gi}>
           <div className="ctx-line"/>
           {g.map((item,i)=>(
-            <button key={i} className={`ctx-row${item.d?' ctx-del':''}`} onClick={()=>{ item.fn(); }}>
-              <span style={{width:14,textAlign:'center',opacity:.6,fontSize:11}}>{item.icon}</span>{item.label}
-            </button>
+            <CtxRow key={i} icon={item.icon} label={item.label} danger={!!item.d} onClick={item.fn}/>
           ))}
         </React.Fragment>
       ))}
@@ -4954,51 +5312,18 @@ const bcCopyText = (text) => {
   bcToast('Copied', 'ok');
 };
 
-const MessageCtxMenu = ({x, y, row, conv, onClose, onReply, onEdit}) => {
+const MessageCtxMenu = ({x, y, ay, row, conv, onClose, onReply, onEdit}) => {
   const ref = React.useRef(null);
   const [confirm, setConfirm] = React.useState(null);   // 'everyone' | 'local'
-  const [pos, setPos] = React.useState({ left: x, top: y });
   const caps = MSGS_STORE.capabilities(conv, row);
   const ref0 = MSGS_STORE.parseUid(row.uid);
   const text = String(row.c || '').replace(MEDIA_LABEL_RE, '').trim();
   const mediaKind = mediaKindOf(row.mt, row.mu);
   const fileName = attNameOf(row) || (row.mn || '');
   const isIn = row.r === 'in';
-
-  // Keep the whole menu on screen, measured after it renders.
-  React.useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const left = Math.max(8, Math.min(x, window.innerWidth  - r.width  - 8));
-    const top  = Math.max(8, Math.min(y, window.innerHeight - r.height - 8));
-    if (left !== pos.left || top !== pos.top) setPos({ left, top });
-  }, [confirm]);   // eslint-disable-line react-hooks/exhaustive-deps
-
-  React.useEffect(() => {
-    const down = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    const key  = (e) => {
-      if (e.key !== 'Escape') return;
-      e.preventDefault(); e.stopPropagation();
-      if (confirm) setConfirm(null); else onClose();
-    };
-    const away = () => onClose();
-    const t = setTimeout(() => {
-      window.addEventListener('mousedown', down, true);
-      window.addEventListener('contextmenu', down, true);
-    }, 0);
-    window.addEventListener('keydown', key, true);
-    window.addEventListener('resize', away);
-    window.addEventListener('blur', away);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener('mousedown', down, true);
-      window.removeEventListener('contextmenu', down, true);
-      window.removeEventListener('keydown', key, true);
-      window.removeEventListener('resize', away);
-      window.removeEventListener('blur', away);
-    };
-  }, [confirm, onClose]);
+  const confirmRef = React.useRef(null); confirmRef.current = confirm;
+  useCtxDismiss(ref, onClose, () => { if (!confirmRef.current) return false; setConfirm(null); return true; });
+  const place = useCtxPlace(ref, x, y, [confirm], ay);
 
   // Why "Delete for everyone" / "Edit" is missing, in one line.
   let note = '';
@@ -5012,31 +5337,22 @@ const MessageCtxMenu = ({x, y, row, conv, onClose, onReply, onEdit}) => {
     note = isIn ? 'The customer deleted this message.' : 'This message was deleted on the platform.';
   }
 
-  const item = (label, icon, fn, opts = {}) => (
-    <button type="button" className={`ctx-row${opts.danger ? ' ctx-del' : ''}`} disabled={!!opts.disabled}
-      onClick={() => { if (!opts.disabled) fn(); }}>
-      <span style={{width:14, textAlign:'center', opacity:.65, fontSize:11}}>{icon}</span>{label}
-    </button>
-  );
-
   if (confirm) {
     const everyone = confirm === 'everyone';
+    const plat = conv.p === 'discord' ? 'Discord' : 'Telegram';
     return (
-      <div className="ctx bc-mctx" ref={ref} style={{ left: pos.left, top: pos.top, width: 236 }} role="dialog" aria-label="Confirm delete">
-        <div style={{padding:'12px 14px 10px'}}>
-          <div style={{fontSize:12.5, fontWeight:600, color:'var(--t1)', marginBottom:6}}>
-            {everyone ? 'Delete for everyone?' : 'Remove from this chat?'}
-          </div>
-          <div style={{fontSize:11, color:'var(--t3)', lineHeight:1.45}}>
+      <div className="ctx" ref={ref} style={{...place, width: 256}} role="dialog" aria-label="Confirm delete">
+        <div className="ctx-confirm">
+          <div className="ctx-confirm-t">{everyone ? 'Delete for everyone?' : 'Remove from this chat?'}</div>
+          <div className="ctx-confirm-b">
             {everyone
-              ? `It will be deleted on ${conv.p === 'discord' ? 'Discord' : 'Telegram'} for you and ${conv.name || 'the customer'}, and removed here.`
-              : `It stays on ${conv.p === 'discord' ? 'Discord' : 'Telegram'}. It is removed from this app’s history and the AI stops seeing it.`}
+              ? `It will be deleted on ${plat} for you and ${conv.name || 'the customer'}, and removed here.`
+              : `It stays on ${plat}. It is removed from this app’s history and the AI stops seeing it.`}
           </div>
         </div>
-        <div className="ctx-line"/>
-        <div style={{display:'flex', gap:6, padding:6}}>
-          <button type="button" className="ctx-row" style={{justifyContent:'center', borderRadius:6}} onClick={() => setConfirm(null)}>Cancel</button>
-          <button type="button" className="ctx-row ctx-del" style={{justifyContent:'center', borderRadius:6, fontWeight:500}}
+        <div className="ctx-btns" data-row="1">
+          <button type="button" className="ctx-btn" onClick={() => setConfirm(null)}>Cancel</button>
+          <button type="button" className="ctx-btn" data-kind="danger"
             onClick={() => {
               MSGS_STORE.deleteMessages(conv.id, [row], everyone ? 'everyone' : 'local');
               if (!everyone) bcToast('Removed from this chat', 'ok');
@@ -5049,23 +5365,80 @@ const MessageCtxMenu = ({x, y, row, conv, onClose, onReply, onEdit}) => {
 
   const hasFile = !!row.mu && !!mediaKind;
   return (
-    <div className="ctx bc-mctx" ref={ref} style={{ left: pos.left, top: pos.top }} role="menu" aria-label="Message actions">
-      <div style={{padding:'4px 0'}}>
-        {item('Reply', '↩', () => { onReply(row); onClose(); }, { disabled: !caps.reply })}
-        {(!isIn) && item('Edit', '✎', () => { onEdit(row); onClose(); }, { disabled: !caps.edit })}
-        {caps.copy && item('Copy text', '⧉', () => { bcCopyText(text); onClose(); })}
-        {hasFile && item(mediaKind === 'image' ? 'Open image' : (mediaKind === 'youtube' || mediaKind === 'link') ? 'Open link' : 'Open file', '↗', () => {
+    <div className="ctx" ref={ref} style={place} role="menu" aria-label="Message actions">
+      <CtxRow icon="reply" label="Reply" disabled={!caps.reply} onClick={() => { onReply(row); onClose(); }}/>
+      {!isIn && <CtxRow icon="edit" label="Edit" disabled={!caps.edit} onClick={() => { onEdit(row); onClose(); }}/>}
+      {caps.copy && <CtxRow icon="copy" label="Copy text" onClick={() => { bcCopyText(text); onClose(); }}/>}
+      {hasFile && <CtxRow icon="open"
+        label={mediaKind === 'image' ? 'Open image' : (mediaKind === 'youtube' || mediaKind === 'link') ? 'Open link' : 'Open file'}
+        onClick={() => {
           if (bcInHost()) bcBridgeSend('openMedia', { url: row.mu, name: fileName });
-          else { try { window.open(row.mu, '_blank', 'noopener'); } catch (_) {} }
+          else bcOpenInBrowser(row.mu);
           onClose();
-        })}
-        {hasFile && bcInHost() && item('Save as…', '⤓', () => { bcBridgeSend('saveMedia', { url: row.mu, name: fileName }); onClose(); })}
-      </div>
+        }}/>}
+      {hasFile && bcInHost() && <CtxRow icon="save" label="Save as…" onClick={() => { bcBridgeSend('saveMedia', { url: row.mu, name: fileName }); onClose(); }}/>}
       <div className="ctx-line"/>
-      <div style={{padding:'4px 0'}}>
-        {caps.deleteEveryone && item('Delete for everyone…', '✕', () => setConfirm('everyone'), { danger: true })}
-        {item('Remove from this chat…', '⊖', () => setConfirm('local'), { danger: !caps.deleteEveryone, disabled: !caps.deleteLocal })}
+      {caps.deleteEveryone && <CtxRow icon="trash" label="Delete for everyone…" danger onClick={() => setConfirm('everyone')}/>}
+      <CtxRow icon="remove" label="Remove from this chat…" danger={!caps.deleteEveryone} disabled={!caps.deleteLocal}
+        onClick={() => setConfirm('local')}/>
+      {note ? (<><div className="ctx-line"/><div className="ctx-note">{note}</div></>) : null}
+    </div>
+  );
+};
+
+// ── DIRECT-CHAT MESSAGE MENU ─────────────────────────────────────────
+// The same menu for a direct chat: copy, edit and delete your own messages
+// (within 48 hours, as elsewhere), open or save a file. Direct messages
+// have no replies and nothing to remove locally, so those rows aren't here.
+const DmMessageMenu = ({x, y, ay, tid, row, peerName, onClose, onEdit}) => {
+  const ref = React.useRef(null);
+  const [confirm, setConfirm] = React.useState(false);
+  const confirmRef = React.useRef(false); confirmRef.current = confirm;
+  useCtxDismiss(ref, onClose, () => { if (!confirmRef.current) return false; setConfirm(false); return true; });
+  const place = useCtxPlace(ref, x, y, [confirm], ay);
+  const text = String(row.c || '').trim();
+  const mediaKind = mediaKindOf(row.mt, row.mu);
+  const hasFile = !!row.mu && !!mediaKind;
+  const fileName = attNameOf(row) || (row.mn || '');
+  const mine = row.r !== 'in';
+  const canEdit = DM_STORE.canEdit(tid, row);
+  const canDelete = DM_STORE.canDelete(tid, row);
+  let note = '';
+  if (row.del) note = mine ? 'You deleted this message.' : `${peerName || 'They'} deleted this message.`;
+  else if (row.locked) note = 'This message can’t be opened in this browser.';
+  else if (mine && !row.sid) note = 'Still sending — actions unlock once it’s delivered.';
+  else if (mine && !canDelete && !row.err) note = 'Messages can be edited or deleted for 48 hours after sending.';
+
+  if (confirm) {
+    return (
+      <div className="ctx" ref={ref} style={{...place, width: 256}} role="dialog" aria-label="Confirm delete">
+        <div className="ctx-confirm">
+          <div className="ctx-confirm-t">Delete for everyone?</div>
+          <div className="ctx-confirm-b">It’s removed for you and {peerName || 'them'}{row.dmf ? ', along with the file' : ''}.</div>
+        </div>
+        <div className="ctx-btns" data-row="1">
+          <button type="button" className="ctx-btn" onClick={() => setConfirm(false)}>Cancel</button>
+          <button type="button" className="ctx-btn" data-kind="danger"
+            onClick={() => { onClose(); DM_STORE.deleteMessage(tid, row); }}>Delete</button>
+        </div>
       </div>
+    );
+  }
+  return (
+    <div className="ctx" ref={ref} style={place} role="menu" aria-label="Message actions">
+      {mine && <CtxRow icon="edit" label="Edit" disabled={!canEdit} onClick={() => { onEdit(row); onClose(); }}/>}
+      {text && !row.locked && !row.del && <CtxRow icon="copy" label="Copy text" onClick={() => { bcCopyText(text); onClose(); }}/>}
+      {hasFile && <CtxRow icon="open" label={mediaKind === 'image' ? 'Open image' : 'Open file'}
+        onClick={() => {
+          if (bcInHost()) bcBridgeSend('openMedia', { url: row.mu, name: fileName });
+          else bcOpenInBrowser(row.mu);
+          onClose();
+        }}/>}
+      {hasFile && bcInHost() && <CtxRow icon="save" label="Save as…" onClick={() => { bcBridgeSend('saveMedia', { url: row.mu, name: fileName }); onClose(); }}/>}
+      {mine && (<>
+        {(canEdit || text || hasFile) && <div className="ctx-line"/>}
+        <CtxRow icon="trash" label="Delete for everyone…" danger disabled={!canDelete} onClick={() => setConfirm(true)}/>
+      </>)}
       {note ? (<><div className="ctx-line"/><div className="ctx-note">{note}</div></>) : null}
     </div>
   );
@@ -6502,7 +6875,7 @@ const InPageChatView = ({msg, onClose, onBack, backTarget, chatWidth, _convSig})
     const h = (e) => {
       const d = (e && e.detail) || {};
       if (d.convId !== msg.id || !d.row) return;
-      setMctx({ x: d.x, y: d.y, row: d.row, ti: d.ti });
+      setMctx({ x: d.x, y: d.y, ay: d.ay, row: d.row, ti: d.ti });
     };
     window.addEventListener('bc-msg-ctx', h);
     return () => window.removeEventListener('bc-msg-ctx', h);
@@ -6719,7 +7092,7 @@ const InPageChatView = ({msg, onClose, onBack, backTarget, chatWidth, _convSig})
     <div className={exiting ? 'ipc ipc-exit' : 'ipc'} onScroll={pinClipScroll} style={chatWidth ? {'--msg-col-w': `${chatWidth}px`} : undefined}>
       {mctx && (
         <TopLayer>
-          <MessageCtxMenu x={mctx.x} y={mctx.y} row={mctx.row} conv={msg}
+          <MessageCtxMenu x={mctx.x} y={mctx.y} ay={mctx.ay} row={mctx.row} conv={msg}
             onClose={closeMctx} onReply={startReply} onEdit={startEdit}/>
         </TopLayer>
       )}
@@ -10092,6 +10465,28 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
   }, [tid]);
   useTypeToFocus(taRef, !canSend);
 
+  // ── Message menu (right-click, or press and hold on a touch screen) ──
+  const [mctx, setMctx] = React.useState(null);   // {x, y, row, ti}
+  React.useEffect(() => {
+    setMctx(null);
+    const h = (e) => {
+      const d = (e && e.detail) || {};
+      if (!th || d.convId !== th.conv.id || !d.row) return;
+      setMctx({ x: d.x, y: d.y, ay: d.ay, row: d.row, ti: d.ti });
+    };
+    window.addEventListener('bc-msg-ctx', h);
+    return () => window.removeEventListener('bc-msg-ctx', h);
+  }, [tid, !!th]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const closeMctx = React.useCallback(() => setMctx(null), []);
+  // Outline the bubble the menu belongs to while it is open.
+  React.useEffect(() => {
+    if (!mctx || mctx.ti == null) return;
+    const root = threadRef.current;
+    const el = root && root.querySelector(`.brow[data-ti="${mctx.ti}"]`);
+    if (el) el.setAttribute('data-ctx-target', '1');
+    return () => { if (el) el.removeAttribute('data-ctx-target'); };
+  }, [mctx]);
+
   // ── Editing your last message (↑ in an empty composer), as in every
   // other chat. Enter saves, Esc cancels; what you'd typed before comes back.
   const [editRow, setEditRow] = React.useState(null);
@@ -10714,6 +11109,12 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
         </div>
       </div>
 
+      {mctx && (
+        <TopLayer>
+          <DmMessageMenu x={mctx.x} y={mctx.y} ay={mctx.ay} tid={tid} row={mctx.row} peerName={first}
+            onClose={closeMctx} onEdit={startEdit}/>
+        </TopLayer>
+      )}
       {pop === 'access' && <DmAccessPopup onClose={() => setPop(null)}/>}
       {consent && (
         <DmAiConsentPopup agent={consent.agent} llm={consent.llm} scope="chat" peerName={first}
