@@ -6688,7 +6688,7 @@ const BCA_CSS = `
      register fields open, the panel grows DOWNWARD and nothing above it
      (the wordmark, the tabs) moves. */
   display: flex; align-items: flex-start; justify-content: center;
-  padding: max(28px, calc(50vh - 230px)) 28px 28px; overflow-y: auto; overflow-x: hidden;
+  padding: max(24px, calc(50vh - 200px)) 24px 24px; overflow-y: auto; overflow-x: hidden;
   background: transparent;           /* the themed .bg-base shows through */
   color: var(--bca-text);
   font-family: 'DM Sans', var(--font, 'Inter', sans-serif);
@@ -6698,15 +6698,18 @@ const BCA_CSS = `
   clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ── Stage: wordmark over the panel ─────────────────────────── */
-.bca-stage { width: 100%; max-width: 420px; margin: 0 auto;
-  display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+.bca-stage { width: 100%; max-width: 356px; margin: 0 auto;
+  display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
 
 /* The wordmark: Orbitron, wide and bold, filled with a teal-to-blue
    gradient that slides back and forth. The same sweep lights the panel's
-   top edge (.bca-glint), so the logo reads as reflecting onto it. */
+   top edge (.bca-glint), so the logo reads as reflecting onto it.
+   Orbitron draws its first letter .05em in from the edge of its box; the
+   negative margin takes that back, so the ink of the first letter lines up
+   exactly with the panel's outer left edge at any size. */
 .bca-word {
-  align-self: flex-start; margin: 0 0 0 2px;
-  font: 700 24px/1 'Orbitron', var(--font, 'Inter', sans-serif);
+  align-self: flex-start; margin: 0 0 0 -.05em;
+  font: 700 20px/1 'Orbitron', var(--font, 'Inter', sans-serif);
   letter-spacing: .07em; text-transform: uppercase; white-space: nowrap;
   background: linear-gradient(90deg, var(--bca-teal) 0%, #4cc2c6 28%, var(--bca-blue) 56%, #8aa4e6 72%, var(--bca-teal) 100%);
   background-size: 260% 100%;
@@ -6725,7 +6728,7 @@ const BCA_CSS = `
 /* ── Panel ──────────────────────────────────────────────────── */
 .bca-card {
   position: relative; width: 100%; overflow: hidden;
-  border-radius: 14px;
+  border-radius: 12px;
   background: linear-gradient(180deg, #181a1e 0%, var(--bca-card) 40%, var(--bca-card2) 100%);
   border: 1px solid var(--bca-edge);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 28px 70px -30px rgba(0,0,0,.85), 0 2px 10px rgba(0,0,0,.35);
@@ -6741,9 +6744,9 @@ const BCA_CSS = `
 
 /* The reflection: a bright glint riding the panel's top edge with a soft
    sheen spilling down over the tabs, sliding in step with the wordmark. */
-.bca-glint { position: absolute; top: 0; left: 0; right: 0; height: 60px; z-index: 3; pointer-events: none; overflow: hidden; }
+.bca-glint { position: absolute; top: 0; left: 0; right: 0; height: 52px; z-index: 3; pointer-events: none; overflow: hidden; }
 .bca-glint i {
-  position: absolute; top: 0; left: 0; width: 42%; height: 60px;
+  position: absolute; top: 0; left: 0; width: 42%; height: 52px;
   animation: bca-glint var(--bca-dur) ease-in-out infinite alternate;
   will-change: transform;
 }
@@ -6752,7 +6755,7 @@ const BCA_CSS = `
   background: linear-gradient(90deg, transparent 0%, rgba(61,212,176,.85) 30%, rgba(170,230,255,.95) 50%, rgba(107,143,219,.85) 70%, transparent 100%);
 }
 .bca-glint i::after {
-  content: ''; position: absolute; top: 0; left: 8%; right: 8%; height: 46px;
+  content: ''; position: absolute; top: 0; left: 8%; right: 8%; height: 40px;
   background: radial-gradient(ellipse 50% 100% at 50% 0%, rgba(80,200,200,.16) 0%, rgba(107,143,219,.07) 45%, transparent 75%);
 }
 @keyframes bca-glint { from { transform: translateX(-18%); } to { transform: translateX(156%); } }
@@ -6766,34 +6769,34 @@ const BCA_CSS = `
   box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
   transition: transform .32s cubic-bezier(.22,1,.36,1); }
 .bca-seg[data-mode="register"] .bca-seg-ind { transform: translateX(100%); }
-.bca-seg button { position: relative; z-index: 1; height: 42px; background: none; border: 0; cursor: pointer;
-  font: 700 11.5px 'DM Sans', var(--font, 'Inter', sans-serif); letter-spacing: .13em; text-transform: uppercase;
+.bca-seg button { position: relative; z-index: 1; height: 36px; background: none; border: 0; cursor: pointer;
+  font: 700 10.5px 'DM Sans', var(--font, 'Inter', sans-serif); letter-spacing: .13em; text-transform: uppercase;
   color: var(--bca-dim); transition: color .16s ease; }
 .bca-seg button:hover { color: #a4a7ae; }
 .bca-seg button[aria-selected="true"] { color: #f3f4f6; }
 .bca-seg button:focus-visible { outline: 2px solid rgba(107,143,219,.55); outline-offset: -2px; }
 .bca-seg button:disabled { cursor: default; }
 
-.bca-body { padding: 20px 20px 16px; }
-.bca-note { margin: -4px 0 14px; font-size: 12px; line-height: 1.5; color: #9fb4dc; }
+.bca-body { padding: 17px 17px 13px; }
+.bca-note { margin: -3px 0 12px; font-size: 11.5px; line-height: 1.5; color: #9fb4dc; }
 
 /* ── Fields — small blue caps label above a dark rounded box ── */
-.bca-form { display: flex; flex-direction: column; gap: 14px; }
-.bca-swap { display: flex; flex-direction: column; gap: 14px; animation: bca-swap .35s cubic-bezier(.22,1,.36,1) both; }
+.bca-form { display: flex; flex-direction: column; gap: 12px; }
+.bca-swap { display: flex; flex-direction: column; gap: 12px; animation: bca-swap .35s cubic-bezier(.22,1,.36,1) both; }
 @keyframes bca-swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.bca-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.bca-f { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.bca-lb { font: 700 10px/1 'DM Sans', var(--font, 'Inter', sans-serif); letter-spacing: .13em; text-transform: uppercase;
+.bca-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.bca-f { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.bca-lb { font: 700 9px/1 'DM Sans', var(--font, 'Inter', sans-serif); letter-spacing: .13em; text-transform: uppercase;
   color: var(--bca-label); padding-left: 1px; user-select: none; }
 .bca-box { position: relative; }
 .bca-in {
-  width: 100%; height: 42px; padding: 0 14px; border-radius: 10px;
+  width: 100%; height: 36px; padding: 0 12px; border-radius: 9px;
   background: var(--bca-field); border: 1px solid rgba(255,255,255,.08);
-  color: var(--bca-text); font: 400 14px 'DM Sans', var(--font, 'Inter', sans-serif);
+  color: var(--bca-text); font: 400 13px 'DM Sans', var(--font, 'Inter', sans-serif);
   outline: none; transition: border-color .15s, background .15s, box-shadow .2s;
 }
 .bca-in::placeholder { color: #666970; opacity: 1; }
-.bca-f[data-pad="1"] .bca-in { padding-right: 44px; }
+.bca-f[data-pad="1"] .bca-in { padding-right: 38px; }
 .bca-in:hover { border-color: rgba(255,255,255,.13); }
 .bca-in:focus { background: #202227; border-color: rgba(98,120,214,.7);
   box-shadow: 0 0 0 3px rgba(77,92,196,.18); }
@@ -6802,7 +6805,7 @@ const BCA_CSS = `
 .bca-f[data-invalid="1"] .bca-in { border-color: rgba(255,120,110,.4); }
 .bca-f[data-invalid="1"] .bca-lb { color: #d98a84; }
 .bca-f[data-ok="1"] .bca-in { border-color: rgba(61,212,176,.28); }
-.bca-reveal { position: absolute; right: 6px; top: 50%; translate: 0 -50%; width: 30px; height: 30px;
+.bca-reveal { position: absolute; right: 4px; top: 50%; translate: 0 -50%; width: 28px; height: 28px;
   display: grid; place-items: center; border-radius: 7px; color: #6b6e76; background: none; border: 0; cursor: pointer;
   transition: background .15s, color .15s; }
 .bca-reveal:hover { background: rgba(255,255,255,.06); color: var(--bca-text); }
@@ -6823,7 +6826,7 @@ const BCA_CSS = `
 .bca-msg { display: grid; grid-template-rows: 0fr; margin-top: -6px; transition: grid-template-rows .3s cubic-bezier(.22,1,.36,1); }
 .bca-msg[data-on="1"] { grid-template-rows: 1fr; }
 /* Hidden: take back the form gap it would otherwise hold open. */
-.bca-msg[data-on="0"] { margin-top: -14px; }
+.bca-msg[data-on="0"] { margin-top: -12px; }
 .bca-msg > div { overflow: hidden; }
 .bca-msg p { margin: 2px 0 0; display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border-radius: 9px;
   font-size: 12px; line-height: 1.45; color: #a3a6ad; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); }
@@ -6834,8 +6837,8 @@ const BCA_CSS = `
 
 /* ── Submit — indigo, full width, icon + label ─────────────── */
 .bca-go {
-  position: relative; height: 42px; margin-top: 4px; border-radius: 10px; cursor: pointer;
-  color: #e3e6ff; font: 700 14px 'DM Sans', var(--font, 'Inter', sans-serif); letter-spacing: .005em;
+  position: relative; height: 36px; margin-top: 3px; border-radius: 9px; cursor: pointer;
+  color: #e3e6ff; font: 700 13px 'DM Sans', var(--font, 'Inter', sans-serif); letter-spacing: .005em;
   background: linear-gradient(180deg, var(--bca-btn) 0%, var(--bca-btn2) 100%);
   border: 1px solid var(--bca-btn-edge);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 24px -14px rgba(52,63,142,.9);
@@ -6847,7 +6850,7 @@ const BCA_CSS = `
 .bca-go:disabled { cursor: progress; }
 .bca-go:focus-visible { outline: 2px solid rgba(140,160,240,.6); outline-offset: 2px; }
 .bca-go-lbl { display: inline-flex; align-items: center; gap: 8px; animation: bca-lbl .26s cubic-bezier(.4,0,.2,1) both; }
-.bca-go-ico { width: 13px; height: 13px; flex: 0 0 auto; opacity: .9; }
+.bca-go-ico { width: 12px; height: 12px; flex: 0 0 auto; opacity: .9; }
 @keyframes bca-lbl { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 .bca-go span { position: relative; }
 .bca-spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; animation: bca-rot .7s linear infinite; }
@@ -6856,9 +6859,9 @@ const BCA_CSS = `
 .bca-check path { stroke-dasharray: 24; stroke-dashoffset: 24; animation: bca-draw .45s .1s cubic-bezier(.65,0,.35,1) forwards; }
 @keyframes bca-draw { to { stroke-dashoffset: 0; } }
 
-.bca-foot { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; padding-top: 13px;
-  border-top: 1px solid rgba(255,255,255,.06); font-size: 11.5px; color: var(--bca-dim); }
-.bca-link { font: 500 11.5px 'DM Sans', var(--font, 'Inter', sans-serif); color: #9fb4dc; background: none; border: 0; cursor: pointer;
+.bca-foot { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 13px; padding-top: 11px;
+  border-top: 1px solid rgba(255,255,255,.06); font-size: 11px; color: var(--bca-dim); }
+.bca-link { font: 500 11px 'DM Sans', var(--font, 'Inter', sans-serif); color: #9fb4dc; background: none; border: 0; cursor: pointer;
   padding: 3px 6px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; transition: color .15s, background .15s; }
 .bca-link svg { transition: transform .2s ease; }
 .bca-link:hover { color: #dbe4f7; background: rgba(255,255,255,.05); }
@@ -6867,9 +6870,9 @@ const BCA_CSS = `
 
 @media (max-width: 440px) {
   .bca { padding: 20px 16px; }
-  .bca-body { padding: 18px 16px 14px; }
+  .bca-body { padding: 16px 14px 12px; }
   .bca-row2 { grid-template-columns: 1fr; }
-  .bca-word { font-size: 22px; }
+  .bca-word { font-size: 18px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .bca *, .bca *::before, .bca *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; }
