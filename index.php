@@ -107,6 +107,14 @@ h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
 .panel-hero { padding: 0; }
 .panel-hero .hero { flex: 1; display: flex; align-items: center; }
 .panel-end { min-height: calc(100svh - 56px - 76px); }
+/* Scrolling moves one section at a time: with a mouse or trackpad the
+   script below glides to the next section; on touch screens the page
+   settles on the nearest one. */
+@media (pointer: coarse) {
+  html { scroll-snap-type: y proximity; }
+  .panel { scroll-snap-align: start; }
+  footer { scroll-snap-align: end; }
+}
 
 /* ── Hero ── */
 .hero { position: relative; padding: clamp(44px, 7vw, 80px) 0 clamp(36px, 5vw, 56px); }
@@ -190,10 +198,18 @@ h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
 .coins { display: flex; gap: 6px; margin-top: 14px; }
 .coin { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font: 600 13px var(--font); color: #d7f4ff;
   background: rgba(255,255,255,.05); border: 1px solid var(--ln2); }
-.cmd { margin-top: 14px; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border-radius: 9px;
-  background: rgba(0,0,0,.28); border: 1px solid var(--ln); font: 12px var(--mono); color: #c9e9ff; overflow: hidden; white-space: nowrap; }
-.cmd svg { width: 13px; height: 13px; color: var(--fx1); flex: none; }
-.cmd .caret { width: 1px; height: 14px; background: #c9e9ff; animation: blink 1s steps(1) infinite; }
+/* Ghost assistant: a question typed in, the ghost's answer below it. */
+.gh { margin-top: 14px; display: grid; gap: 6px; min-height: 76px; align-content: start; }
+.gh-q { justify-self: end; display: inline-flex; align-items: center; gap: 1px; max-width: 92%; min-height: 30px; padding: 6px 11px;
+  border-radius: 12px 12px 4px 12px; background: rgba(255,255,255,.07); font-size: 12px; color: var(--t1); }
+.gh-q .caret { width: 1px; height: 13px; margin-left: 1px; background: var(--t2); animation: blink 1s steps(1) infinite; }
+.gh-a { display: flex; align-items: flex-end; gap: 7px; opacity: 0; transform: translateY(4px); transition: opacity .3s ease, transform .4s cubic-bezier(.16,1,.3,1); }
+.gh-a.on { opacity: 1; transform: none; }
+.gh-av { width: 22px; height: 22px; flex: none; border-radius: 50%; display: grid; place-items: center; color: #d6f1ff;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--fx1) 35%, transparent), color-mix(in srgb, var(--fx3) 28%, transparent)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); }
+.gh-av svg { width: 13px; height: 13px; }
+.gh-t { padding: 6px 11px; border-radius: 12px 12px 12px 4px; font-size: 12px; color: var(--t1);
+  background: linear-gradient(135deg, rgba(20,184,166,.2), rgba(59,130,246,.18)); border: 1px solid rgba(125,211,252,.14); }
 @keyframes blink { 50% { opacity: 0; } }
 .more { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-top: 16px; }
 
@@ -333,6 +349,7 @@ footer a:hover { color: var(--t1); }
     <symbol id="i-monitor" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></symbol>
     <symbol id="i-globe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
     <symbol id="i-bolt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></symbol>
+    <symbol id="i-ghost" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a7 7 0 0 0-7 7v10.5l2.33-1.75L9.67 20.5 12 18.75l2.33 1.75 2.34-1.75L19 20.5V10a7 7 0 0 0-7-7z"/><circle cx="9.5" cy="10.5" r=".9" fill="currentColor"/><circle cx="14.5" cy="10.5" r=".9" fill="currentColor"/></symbol>
     <symbol id="i-term" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-5-6-5M12 19h8"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></symbol>
     <symbol id="i-user" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
@@ -462,10 +479,13 @@ footer a:hover { color: var(--t1); }
           <p>Refunds and exceptions are routed to you.</p>
         </div>
         <div class="tile w3 rv">
-          <div class="ic"><svg><use href="#i-term"/></svg></div>
-          <h3>Command bar</h3>
-          <p>Create invoices, messages, reports and reminders in plain language.</p>
-          <div class="cmd"><svg><use href="#i-arrow"/></svg><span id="cmdtxt"></span><span class="caret"></span></div>
+          <div class="ic"><svg><use href="#i-ghost"/></svg></div>
+          <h3>Ghost assistant</h3>
+          <p>Ask about your store or have it handle tasks: messages, reminders, invoices and reports.</p>
+          <div class="gh" aria-hidden="true">
+            <div class="gh-q"><span id="ghq"></span><span class="caret"></span></div>
+            <div class="gh-a" id="gha"><span class="gh-av"><svg><use href="#i-ghost"/></svg></span><span class="gh-t" id="ght"></span></div>
+          </div>
         </div>
         <div class="tile w3 rv">
           <div class="ic"><svg><use href="#i-chart"/></svg></div>
@@ -645,6 +665,60 @@ footer a:hover { color: var(--t1); }
 })();
 var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// Section-by-section scrolling (mouse, trackpad and keyboard).
+// One gesture moves one section, however long a trackpad keeps sending
+// momentum. A section taller than the window scrolls normally until its
+// edge, then the next gesture moves on.
+(function () {
+  if (!matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  var panels = Array.prototype.slice.call(document.querySelectorAll('.panel')), NAV = 56;
+  var busy = false, last = 0;
+  function tops() { return panels.map(function (p) { return p.offsetTop - NAV; }); }
+  function current() {
+    var y = scrollY + 4, T = tops(), i = 0;
+    for (var k = 0; k < T.length; k++) if (T[k] <= y) i = k;
+    return i;
+  }
+  function go(i) {
+    var T = tops();
+    i = Math.max(0, Math.min(T.length - 1, i));
+    var y = i === T.length - 1 ? document.documentElement.scrollHeight - innerHeight : T[i];
+    busy = true;
+    window.scrollTo({ top: y, behavior: reduce ? 'auto' : 'smooth' });
+    setTimeout(function () { busy = false; }, 800);
+  }
+  function edgeFree(dir) {
+    var r = panels[current()].getBoundingClientRect();
+    // A section only slightly taller than the window (its own padding) still
+    // counts as fitting, as does the footer's height under the last one.
+    var slack = Math.min(96, innerHeight * .11);
+    return dir > 0 ? r.bottom <= innerHeight + slack : r.top >= NAV - slack;
+  }
+  // Each gesture (a flick of the wheel, one trackpad swipe with its
+  // momentum) is decided once, when it starts: move to the next section,
+  // or, inside a section with more to show, scroll it normally.
+  var mode = 'native', jumped = false;
+  addEventListener('wheel', function (e) {
+    if (e.ctrlKey || Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+    var dir = e.deltaY > 0 ? 1 : -1;
+    var now = Date.now(), gap = now - last; last = now;
+    if (gap > 160) { mode = busy ? 'hold' : (edgeFree(dir) ? 'jump' : 'native'); jumped = false; }
+    if (mode === 'native') return;
+    e.preventDefault();
+    var atEnd = dir > 0 && scrollY + innerHeight >= document.documentElement.scrollHeight - 2;
+    if (mode === 'jump' && !jumped && !busy && !atEnd) { jumped = true; go(current() + dir); }
+  }, { passive: false });
+  addEventListener('keydown', function (e) {
+    if (e.target && /input|textarea|select/i.test(e.target.tagName)) return;
+    var k = e.key, dir = (k === 'PageDown' || k === 'ArrowDown' || (k === ' ' && !e.shiftKey)) ? 1
+                      : (k === 'PageUp' || k === 'ArrowUp' || (k === ' ' && e.shiftKey)) ? -1 : 0;
+    if (k === 'Home') { e.preventDefault(); return go(0); }
+    if (k === 'End') { e.preventDefault(); return go(panels.length - 1); }
+    if (!dir || !edgeFree(dir)) return;
+    e.preventDefault(); if (!busy) go(current() + dir);
+  });
+})();
+
 // Cards: a soft light that follows the pointer.
 (function () {
   if (reduce || !matchMedia('(hover: hover)').matches) return;
@@ -677,17 +751,26 @@ var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)')
   })();
 })();
 
-// Command bar: typed examples.
+// Ghost assistant: a question is typed, the ghost answers, next one.
 (function () {
-  var el = document.getElementById('cmdtxt');
-  var lines = ['invoice Maya $49 for Pro', 'follow up with Ken tomorrow at 10', 'revenue report for this week', 'send Ken the setup guide'];
-  if (reduce) { el.textContent = lines[0]; return; }
-  var li = 0, ci = 0, del = false;
-  (function tick() {
-    var t = lines[li];
-    if (!del) { el.textContent = t.slice(0, ++ci); if (ci >= t.length) { del = true; return setTimeout(tick, 1800); } }
-    else { el.textContent = t.slice(0, --ci); if (ci <= 0) { del = false; li = (li + 1) % lines.length; } }
-    setTimeout(tick, del ? 22 : 48);
+  var q = document.getElementById('ghq'), a = document.getElementById('gha'), at = document.getElementById('ght');
+  var pairs = [
+    ['who still owes me?', 'Two open invoices: Maya ($49) and Ken ($19).'],
+    ['remind Ken about his renewal tomorrow', 'Scheduled. I\'ll message him at 10:00.'],
+    ['how are sales this week?', 'Ahead of last week. Want the full report?'],
+    ['take the agent off Maya\'s chat', 'Done. That chat is yours now.'],
+  ];
+  if (reduce) { q.textContent = pairs[0][0]; at.textContent = pairs[0][1]; a.classList.add('on'); return; }
+  var i = 0;
+  (function next() {
+    var p = pairs[i], c = 0;
+    a.classList.remove('on'); q.textContent = '';
+    (function type() {
+      q.textContent = p[0].slice(0, ++c);
+      if (c < p[0].length) return setTimeout(type, 42);
+      setTimeout(function () { at.textContent = p[1]; a.classList.add('on'); }, 700);
+      setTimeout(function () { i = (i + 1) % pairs.length; next(); }, 4200);
+    })();
   })();
 })();
 
