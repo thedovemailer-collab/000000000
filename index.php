@@ -480,7 +480,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       <div class="logos">
         <span class="logo"><svg style="color:#37aee2"><use href="#i-tg"/></svg> Telegram</span>
         <span class="logo"><svg style="color:#7c8cff"><use href="#i-dc"/></svg> Discord</span>
-        <span class="logo"><svg style="color:var(--fx1)"><use href="#i-lock"/></svg> Direct chats</span>
+        <span class="logo"><svg style="color:var(--fx1)"><use href="#i-lock"/></svg> Contact page</span>
       </div>
       <span class="lbl">Your AI</span>
       <div class="logos">
