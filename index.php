@@ -429,9 +429,9 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
   <div class="hero">
     <div class="wrap">
       <div>
-        <span class="pill rv"><b></b> Telegram · Discord · Direct chats</span>
-        <h1 class="rv">AI customer agents<br><em>for Telegram &amp; Discord.</em></h1>
-        <p class="lead rv">Answer customers, accept crypto payments and deliver orders automatically, even while you're away.</p>
+        <span class="pill rv"><b></b> Telegram · Discord · Your own contact page</span>
+        <h1 class="rv">AI customer agents<br><em>wherever you chat.</em></h1>
+        <p class="lead rv">Works with Telegram and Discord, or on its own through your personal contact page. Customers are answered, paid and served automatically, even while you're away.</p>
         <div class="cta rv">
           <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
           <?php if ($DESKTOP_URL !== ''): ?>
