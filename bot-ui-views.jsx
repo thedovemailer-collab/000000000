@@ -2649,7 +2649,7 @@ const ContactListProfile = ({account, big = false}) => {
   // same vertical line as the magnifier below; "Sign out" ends on the line
   // of the search text's right padding.
   const box = big
-    ? { minHeight:30, margin:'2px 0 9px', padding:'0 0 0 1px' }
+    ? { minHeight:24, margin:'2px 0 8px', padding:'0 4px 0 11px' }
     : { height:20, margin:'0 0 7px', padding:'0 4px 0 11px' };
   if (!account) return <div style={box} aria-hidden="true"/>;
   const name = String(account.display_name || account.username || account.email || '').trim();
@@ -2676,26 +2676,11 @@ const ContactListProfile = ({account, big = false}) => {
       {/* On a phone the name is the screen's title, like any messaging
           app's list header. */}
       <span title={[name, email].filter(Boolean).join(' · ')} onClick={()=>setNear(n => !n)} style={{
-        flex:'0 1 auto', minWidth:0, display:'inline-flex', alignItems:'center', gap: big ? 9 : 0,
-        cursor:'default',
-      }}>
-        {/* On a phone: a small monogram, then the name at a size that
-            follows the screen (13–15px), not a shouting title. */}
-        {big && (
-          <span aria-hidden="true" style={{
-            flexShrink:0, width:26, height:26, borderRadius:'50%', display:'grid', placeItems:'center',
-            fontSize:11, fontWeight:650, letterSpacing:'0.01em', color:'rgba(236,238,248,0.92)',
-            background:'linear-gradient(145deg, color-mix(in oklab, var(--acc, #6c63ff) 42%, rgba(255,255,255,0.06)), rgba(255,255,255,0.04))',
-            boxShadow:'inset 0 0 0 0.5px rgba(255,255,255,0.14)',
-          }}>{(name.replace(/^@/, '')[0] || '?').toUpperCase()}</span>
-        )}
-        <span style={{
-          minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
-          fontSize: big ? 'clamp(13px, 3.6vw, 15px)' : 11.5, fontWeight: big ? 620 : 600,
-          letterSpacing: big ? '-0.012em' : '-0.005em', lineHeight: big ? '26px' : '20px',
-          color: big ? 'rgba(236,238,248,0.94)' : 'rgba(226,228,240,0.8)',
-        }}>{name}</span>
-      </span>
+        flex:'0 1 auto', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+        fontSize: big ? 12.5 : 11.5, fontWeight:600,
+        letterSpacing:'-0.005em', lineHeight: big ? '24px' : '20px',
+        color:'rgba(226,228,240,0.82)', cursor:'default',
+      }}>{name}</span>
       <button type="button" onClick={signOut}
         onMouseEnter={()=>setOver(true)} onMouseLeave={()=>setOver(false)}
         onFocus={()=>setFocus(true)} onBlur={()=>setFocus(false)}
@@ -8601,6 +8586,13 @@ const ensureTypingStyles = () => {
   .bc-cgrp:hover { background-color: rgba(255,255,255,0.03); transition-duration: 0s; }
 }
 .bc-crow[data-active="1"], .bc-crow[data-active="1"]:hover { background-color: rgba(150,148,200,0.13); }
+/* Phones and tablets: roomier rows, a slightly larger avatar and text. */
+@media (pointer: coarse), (max-width: 640px) {
+  [data-collapsed="0"] .bc-crow { padding: 13px 18px 13px 16px; gap: 14px !important; }
+  [data-collapsed="0"] .bc-crow-ava { transform: scale(1.12); transform-origin: left center; margin-right: 5px; }
+  .bc-crow-name { font-size: 15px !important; }
+  .bc-crow-txt .bc-cprev { font-size: 13.5px !important; }
+}
 
 /* ── Avatar status marks ───────────────────────────────────────
    Quiet by default. Status is carried by small, desaturated marks seated
@@ -8913,7 +8905,7 @@ const ContactRow = React.memo(function ContactRow({
           {/* Name + time row */}
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:3,gap:6}}>
             <div style={{display:'flex',alignItems:'center',gap:5,minWidth:0,flex:1}}>
-              <span style={{
+              <span className="bc-crow-name" style={{
                 fontSize:13, fontWeight: unread>0 ? 600 : 500,
                 color: isActive ? '#fff' : 'var(--t1)',
                 overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
