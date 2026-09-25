@@ -418,6 +418,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       <a href="#payments">Payments</a>
       <a href="#languages">Languages</a>
       <a href="#ai">AI</a>
+      <a href="help.php">Help</a>
     </nav>
     <a class="btn btn-g btn-s" href="<?= $h($APP_URL) ?>"><?= $signedIn ? 'Open app' : 'Sign in' ?></a>
   </div>
@@ -711,6 +712,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
         <a href="#licensing">Licensing</a>
         <a href="#payments">Payments</a>
         <a href="#languages">Languages</a>
+        <a href="help.php">Help</a>
         <a href="<?= $h($APP_URL) ?>"><?= $signedIn ? 'Open app' : 'Sign in' ?></a>
       </nav>
       <div class="f-plat" aria-label="Works with Telegram, Discord and direct chats">
@@ -798,7 +800,7 @@ var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)')
   var onScroll = function () { nav.classList.toggle('scrolled', scrollY > 8); };
   addEventListener('scroll', onScroll, { passive: true }); onScroll();
   var links = {};
-  document.querySelectorAll('.links a').forEach(function (a) { links[a.getAttribute('href').slice(1)] = a; });
+  document.querySelectorAll('.links a[href^="#"]').forEach(function (a) { links[a.getAttribute('href').slice(1)] = a; });
   if (!('IntersectionObserver' in window)) return;
   var io = new IntersectionObserver(function (es) {
     es.forEach(function (e) {
