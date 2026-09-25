@@ -3645,6 +3645,9 @@ try {
     error_log('[dm] schema create failed: ' . $e->getMessage());
 }
 if (!col_exists($pdo, 'bc_dm_profile', 'auto_agent_id'))  try_alter($pdo, "ALTER TABLE bc_dm_profile ADD COLUMN auto_agent_id INT NULL DEFAULT NULL");
+// Set once dm_ai_open_fix has put back the chats the old dm_open rule
+// switched off for this account.
+if (!col_exists($pdo, 'bc_dm_profile', 'ai_open_fix'))    try_alter($pdo, "ALTER TABLE bc_dm_profile ADD COLUMN ai_open_fix TINYINT(1) NOT NULL DEFAULT 0");
 if (!col_exists($pdo, 'bc_dm_messages', 'ai_agent'))      try_alter($pdo, "ALTER TABLE bc_dm_messages ADD COLUMN ai_agent INT NOT NULL DEFAULT 0");
 // Editing your own direct messages (dm_edit): when it was last edited, and
 // edit_rev — a rising stamp (ms) that dm_poll hands edits out by, so the
@@ -4036,6 +4039,30 @@ function dm_ai_effective(PDO $pdo, int $acc, int $tid, ?array $row = null, ?arra
     }
     if ($auto > 0 && (int)$row['manual_off'] !== 1) return ['agent_id' => $auto, 'auto' => true, 'approved' => true];
     return ['agent_id' => 0, 'auto' => false, 'approved' => false];
+}
+// Opening an empty chat used to switch "Answer new chats" off for it, so
+// anyone you had only looked up and opened (without writing to them) got
+// no agent when they later messaged you first. Only a first message YOU
+// send does that now (dm_send). This puts back, once per account, the
+// chats the old rule caught: switched off with no agent, never answered by
+// one, not touched since before anything was said, and either still empty
+// or opened by the other person's message.
+function dm_ai_open_fix(PDO $pdo, int $acc, array $prof): void {
+    if (!array_key_exists('ai_open_fix', $prof) || (int)$prof['ai_open_fix'] === 1) return;
+    try {
+        $c = $pdo->prepare("SELECT thread_id, UNIX_TIMESTAMP(updated_at) AS ts FROM bc_dm_ai
+                             WHERE account_id=? AND manual_off=1 AND agent_id IS NULL AND last_in=0");
+        $c->execute([$acc]);
+        $f = $pdo->prepare("SELECT sender_id, UNIX_TIMESTAMP(created_at) AS ts FROM bc_dm_messages WHERE thread_id=? ORDER BY id ASC LIMIT 1");
+        $u = $pdo->prepare("UPDATE bc_dm_ai SET manual_off=0 WHERE account_id=? AND thread_id=? AND manual_off=1 AND agent_id IS NULL");
+        foreach ($c->fetchAll() as $r) {
+            $f->execute([(int)$r['thread_id']]);
+            $first = $f->fetch();
+            if ($first && ((int)$first['sender_id'] === $acc || (int)$r['ts'] > (int)$first['ts'])) continue;
+            $u->execute([$acc, (int)$r['thread_id']]);
+        }
+        $pdo->prepare("UPDATE bc_dm_profile SET ai_open_fix=1 WHERE account_id=?")->execute([$acc]);
+    } catch (Throwable $e) { error_log('[dm] open fix failed: ' . get_class($e)); }
 }
 // The provider, model and key an agent's replies go through. The agent's
 // own model is used when the account has a key for that model's provider;
@@ -15875,18 +15902,12 @@ GHOSTTXT;
             $q->execute([$a, $b]);
             $t = $q->fetch();
         }
-        // A chat YOU start (nothing said in it yet, and no agent choice made
-        // for it) isn't covered by "Answer new chats": that setting is for
-        // people who contact you. You can still put an agent on it yourself.
-        // A chat they started, or one an agent was already assigned to, is
-        // left exactly as it is.
+        // Opening a chat (from search or a contact link) changes nothing
+        // about its agent. A chat YOU start isn't covered by "Answer new
+        // chats", but that's decided when you send the first message
+        // (dm_send), not here: switching it off on open left everyone you
+        // had merely looked up without an agent when they wrote to you first.
         $ai = null;
-        if ((int)$t['last_msg_id'] === 0) {
-            try {
-                $pdo->prepare("INSERT IGNORE INTO bc_dm_ai (account_id, thread_id, agent_id, manual_off, allowed) VALUES (?,?,NULL,1,'')")
-                    ->execute([$me, (int)$t['id']]);
-            } catch (Throwable $e) {}
-        }
         try {
             $rw = dm_ai_row($pdo, $me, (int)$t['id']);
             $ai = ['agent_id' => !empty($rw['agent_id']) ? (int)$rw['agent_id'] : 0, 'manual_off' => (int)($rw['manual_off'] ?? 0) === 1, 'allowed' => dm_ai_allowed_ids($rw)];
@@ -16028,6 +16049,25 @@ GHOSTTXT;
         if ($aiA === 0 && empty($body['ob'])) dm_spam_clear($pdo, $me, $tid);
         $pdo->prepare("UPDATE bc_dm_threads SET last_msg_id=GREATEST(last_msg_id, ?), {$mine}_read=GREATEST({$mine}_read, ?) WHERE id=?")
             ->execute([$mid, $mid, $tid]);
+        // You contacted them first: "Answer new chats" is for people who
+        // contact you, so it doesn't cover this chat. Only a message you
+        // typed yourself, and only the chat's very first one — if they wrote
+        // first, the agent keeps answering. An agent you put on it yourself
+        // stays on.
+        $aiRow = null;
+        if ($aiA === 0 && empty($body['ob'])) {
+            try {
+                $fq = $pdo->prepare("SELECT 1 FROM bc_dm_messages WHERE thread_id=? AND id<? LIMIT 1");
+                $fq->execute([$tid, $mid]);
+                if (!$fq->fetchColumn()) {
+                    $pdo->prepare("INSERT INTO bc_dm_ai (account_id, thread_id, agent_id, manual_off, allowed) VALUES (?,?,NULL,1,'')
+                                   ON DUPLICATE KEY UPDATE manual_off = IF(agent_id IS NULL, 1, manual_off)")
+                        ->execute([$me, $tid]);
+                    $rw = dm_ai_row($pdo, $me, $tid);
+                    $aiRow = ['agent_id' => !empty($rw['agent_id']) ? (int)$rw['agent_id'] : 0, 'manual_off' => (int)($rw['manual_off'] ?? 0) === 1, 'allowed' => dm_ai_allowed_ids($rw)];
+                }
+            } catch (Throwable $e) { error_log('[dm] first-message agent switch failed: ' . get_class($e)); }
+        }
         dm_set_typing($pdo, $tid, $me, 0);
         $away = false;
         if ($agentKey && $env) {
@@ -16064,8 +16104,10 @@ GHOSTTXT;
         $ex->execute([$me, $uid]);
         // assist: a copy their agent can read went with it (the sender's app
         // keeps adding one up front). assist_away: they're away right now.
+        // ai: the chat's agent state, when your first message just changed it.
         ok(['message' => dm_msg_out($ex->fetch(), $me), 'assist' => (bool)($agentKey && $env),
-            'assist_away' => (bool)($agentKey && $env && $away), 'assist_notice' => (bool)($agentKey && $env && $notice)]);
+            'assist_away' => (bool)($agentKey && $env && $away), 'assist_notice' => (bool)($agentKey && $env && $notice),
+            'ai' => $aiRow]);
     }
 
     // Edit one of your own messages. The browser re-encrypts the new text
@@ -16259,6 +16301,7 @@ GHOSTTXT;
     case 'dm_ai_state': {
         $me   = (int)$ACCOUNT_ID;
         $prof = dm_profile($pdo, $me);
+        dm_ai_open_fix($pdo, $me, $prof);
         // The zone this device reads the agents' reply hours in, so the
         // server reads them the same way while you're away.
         if (!empty($body['tz'])) dm_device_tz_save($pdo, $me, (string)$body['tz']);

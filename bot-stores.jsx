@@ -8251,6 +8251,14 @@ const DM_STORE = {
           th.agentKeyHint = { key: agentKey, at: Date.now() };
         }
         else th.agentKeyHint = null;
+        // Your first message in this chat: "Answer new chats" no longer
+        // covers it (see dm_send), so the header shows that straight away.
+        if (r.ai && typeof DM_AI !== 'undefined') {
+          const before = DM_AI.effective(th.id).id;
+          DM_AI.rows.set(Number(th.id), { agentId: Number(r.ai.agent_id) || 0, manualOff: !!r.ai.manual_off, allowed: new Set((r.ai.allowed || []).map(Number)) });
+          if (before !== DM_AI.effective(th.id).id) DM_AI.cancel(th.id);
+          DM_AI.notify();
+        }
         const m = r.message;
         const fresh = await this._decrypt(m);
         Object.assign(row, fresh, { _pending: false, err: '' }, this._keepStamp(row));
@@ -8306,8 +8314,9 @@ const DM_STORE = {
     const r = await apiFetch('dm_open', user.id ? { peer_id: user.id } : { username: user.username });
     if (!r || r.error || !r.thread) throw new Error((r && r.error) || 'Could not open the chat');
     const th = this._upsertThread(r.thread);
-    // The chat's agent state as the server has it now: a chat you start
-    // doesn't get the "Answer new chats" agent (see dm_open).
+    // The chat's agent state as the server has it now. Opening a chat
+    // doesn't change it; a chat you start loses the "Answer new chats"
+    // agent when you send the first message (see dm_send).
     if (r.ai && typeof DM_AI !== 'undefined') {
       DM_AI.rows.set(Number(th.id), { agentId: Number(r.ai.agent_id) || 0, manualOff: !!r.ai.manual_off, allowed: new Set((r.ai.allowed || []).map(Number)) });
       DM_AI.notify();
