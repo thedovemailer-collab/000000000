@@ -19,12 +19,13 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>booqi — AI agents for Telegram and Discord</title>
+<title>booqi · Handled, even offline</title>
 <meta name="description" content="AI agents for Telegram, Discord and direct chats. Customer replies, crypto payments and licence delivery, fully automated.">
 <meta name="theme-color" content="#020b10">
-<meta property="og:title" content="booqi — AI agents for Telegram and Discord">
+<meta name="apple-mobile-web-app-title" content="booqi">
+<meta property="og:title" content="booqi · Handled, even offline">
 <meta property="og:description" content="AI agents that handle customer conversations on Telegram and Discord.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1'%3E%3Cstop stop-color='%2314b8a6'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='%23061831'/%3E%3Cpath d='M9 11h14a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3h-7l-5 4v-4H9a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3z' fill='url(%23g)'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23000'/%3E%3Cpath d='M16 5c-5.3 0-9 3.9-9 9.2V27l3-2.4 3 2.4 3-2.4 3 2.4 3-2.4 3 2.4V14.2C25 8.9 21.3 5 16 5z' fill='%23fff'/%3E%3Cellipse cx='12.6' cy='14.2' rx='1.7' ry='2.2' fill='%23000'/%3E%3Cellipse cx='19.4' cy='14.2' rx='1.7' ry='2.2' fill='%23000'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fredoka:wght@400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -68,7 +69,7 @@ svg { display: block; }
 /* Header: a floating glass bar. Mark + wordmark, section links in a
    pill that follows the section in view, and the app button. */
 .nav { position: fixed; top: 0; left: 0; right: 0; z-index: 30; padding: 12px 0; pointer-events: none; }
-.nav .wrap { pointer-events: auto; position: relative; display: flex; align-items: center; gap: 16px; height: 52px; padding: 0 8px 0 12px;
+.nav .wrap { pointer-events: auto; position: relative; display: flex; align-items: center; gap: 16px; height: 52px; padding: 0 8px 0 20px;
   border-radius: 16px; background: rgba(7,13,21,.62); border: 1px solid rgba(255,255,255,.08);
   backdrop-filter: blur(20px) saturate(170%); -webkit-backdrop-filter: blur(20px) saturate(170%);
   box-shadow: 0 12px 34px -16px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.06);
@@ -348,7 +349,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
 @media (max-width: 640px) {
   .links { display: none; }
   .nav .btn-s { margin-left: auto; }
-  .nav .wrap { height: 48px; padding: 0 6px 0 10px; }
+  .nav .wrap { height: 48px; padding: 0 6px 0 16px; }
   .f-top, .f-bot { justify-content: center; text-align: center; }
   .f-links { margin-left: 0; justify-content: center; }
   .bento { gap: 8px; }
@@ -409,7 +410,6 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
 <header class="nav">
   <div class="wrap">
     <a href="#top" class="brand" aria-label="booqi">
-      <span class="mark"><svg><use href="#i-mark"/></svg></span>
       <span class="word">booqi</span>
     </a>
     <nav class="links" aria-label="Sections">
@@ -555,7 +555,6 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
         <span class="tag"><svg width="12" height="12"><use href="#i-chat"/></svg>Reply, edit &amp; delete</span>
         <span class="tag"><svg width="12" height="12"><use href="#i-box"/></svg>Photos &amp; files</span>
         <span class="tag"><svg width="12" height="12"><use href="#i-refresh"/></svg>Multiple accounts</span>
-        <span class="tag"><svg width="12" height="12"><use href="#i-spark"/></svg>Themes</span>
       </div>
     </div>
   </section>
