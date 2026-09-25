@@ -27,7 +27,7 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' x2='1'%3E%3Cstop stop-color='%2314b8a6'/%3E%3Cstop offset='1' stop-color='%233b82f6'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='9' fill='%23061831'/%3E%3Cpath d='M9 11h14a3 3 0 0 1 3 3v5a3 3 0 0 1-3 3h-7l-5 4v-4H9a3 3 0 0 1-3-3v-5a3 3 0 0 1 3-3z' fill='url(%23g)'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:ital,opsz,wght,SOFT,WONK@1,9..144,600,100,1&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
   --fx1: #14b8a6; --fx2: #06b6d4; --fx3: #3b82f6;
@@ -36,13 +36,13 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
   --ln: rgba(255,255,255,.065); --ln2: rgba(255,255,255,.11);
   --glass: rgba(13,19,31,.66); --glass2: rgba(18,26,40,.74);
   --ok: #30d158; --warn: #f5a524;
-  --font: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;
   --w: 1080px; --r: 14px; --navh: 76px;
 }
 *, *::before, *::after { box-sizing: border-box; }
 html { scroll-behavior: smooth; scroll-padding-top: 0; -webkit-text-size-adjust: 100%; background: var(--b1); }
-body { margin: 0; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; color: var(--t1); font: 400 14.5px/1.55 var(--font); letter-spacing: .005em; word-spacing: .05em; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+body { margin: 0; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; color: var(--t1); font: 400 14.5px/1.55 var(--font); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
 svg { display: block; }
 .wrap { width: min(var(--w), 100% - 40px); margin-inline: auto; }
@@ -58,7 +58,8 @@ svg { display: block; }
 @keyframes drift { to { transform: translate(6vw, 4vh) scale(1.08); } }
 
 /* Wordmark */
-.word { font: 800 21px/1 var(--font); letter-spacing: -.04em; padding-bottom: 2px;
+.word, .brandname { font-family: 'Fraunces', Georgia, serif; font-style: italic; font-weight: 600; font-variation-settings: 'SOFT' 100, 'WONK' 1; letter-spacing: -.01em; padding-right: .08em; }
+.word { font-size: 23px; line-height: 1; padding-bottom: 3px;
   background: linear-gradient(90deg, var(--fx1) 0%, var(--fx2) 28%, var(--fx3) 56%, #dfe6f0 72%, var(--fx1) 100%);
   background-size: 260% 100%; -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
   animation: flow 9s ease-in-out infinite alternate; filter: drop-shadow(0 0 14px color-mix(in srgb, var(--fx1) 16%, transparent)); }
@@ -88,7 +89,7 @@ svg { display: block; }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 38px; padding: 0 16px; border-radius: 10px;
-  font: 600 13px/1 var(--font); letter-spacing: 0; white-space: nowrap; cursor: pointer;
+  font: 600 13px/1 var(--font); letter-spacing: -.005em; white-space: nowrap; cursor: pointer;
   transition: transform .15s, background-color .15s, box-shadow .2s, border-color .15s; }
 .btn:active { transform: translateY(1px); }
 .btn svg { width: 14px; height: 14px; }
@@ -102,13 +103,13 @@ svg { display: block; }
 /* Type */
 .eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: var(--fx1); }
 .eyebrow::before { content: ''; width: 14px; height: 1px; background: currentColor; opacity: .6; }
-h1 { margin: 16px 0 12px; font-size: clamp(30px, 4vw, 48px); line-height: 1.04; letter-spacing: -.024em; font-weight: 700; }
+h1 { margin: 16px 0 12px; font-size: clamp(30px, 4vw, 48px); line-height: 1.04; letter-spacing: -.035em; font-weight: 700; }
 h1, h2 { background: linear-gradient(180deg, #fff 30%, #aab4c8); -webkit-background-clip: text; background-clip: text; color: transparent; }
 @media (min-width: 981px) { h1 em { white-space: nowrap; } }
 .hero .wrap > * { min-width: 0; }
-h1 em, h2 em { font-family: 'Instrument Serif', Georgia, serif; font-style: italic; font-weight: 400; font-size: 1.1em; letter-spacing: 0; padding-right: .06em; background: linear-gradient(90deg, #5eead4, #7dd3fc 50%, #a5b4fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
-h2 { margin: 8px 0 8px; font-size: clamp(24px, 3vw, 34px); line-height: 1.12; letter-spacing: -.018em; font-weight: 650; }
-h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: 0; }
+h1 em, h2 em { font-style: normal; background: linear-gradient(90deg, #5eead4, #7dd3fc 50%, #a5b4fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+h2 { margin: 8px 0 8px; font-size: clamp(24px, 3vw, 34px); line-height: 1.12; letter-spacing: -.028em; font-weight: 650; }
+h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
 .sub { margin: 0; color: var(--t2); max-width: 34em; }
 .hd { margin-bottom: 24px; }
 .hd.c { text-align: center; } .hd.c .sub { margin-inline: auto; }
@@ -292,7 +293,7 @@ h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: 0; }
 /* How it works */
 .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; counter-reset: s; }
 .steps .tile { grid-column: auto; }
-.steps .tile::after { counter-increment: s; content: '0' counter(s); position: absolute; top: 16px; right: 18px; font: italic 400 20px 'Instrument Serif', serif; letter-spacing: 0; color: rgba(255,255,255,.16); }
+.steps .tile::after { counter-increment: s; content: '0' counter(s); position: absolute; top: 16px; right: 18px; font: 700 11px var(--mono); letter-spacing: .08em; color: rgba(255,255,255,.16); }
 
 /* Closing card: a lit panel with a gradient edge and a faint grid. */
 .finale { position: relative; border-radius: 24px; padding: 1px; overflow: hidden;
@@ -680,7 +681,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
     <div class="finale rv">
       <div class="finale-in">
         <span class="mark mark-lg"><svg><use href="#i-mark"/></svg></span>
-        <h2>Get started with <em>booqi.</em></h2>
+        <h2>Get started with <em class="brandname">booqi.</em></h2>
         <p class="sub">Set up your first agent in a few minutes.</p>
         <div class="cta">
           <a class="btn btn-p" href="<?= $h($APP_URL) ?>"><?= $h($cta) ?> <svg><use href="#i-arrow"/></svg></a>
