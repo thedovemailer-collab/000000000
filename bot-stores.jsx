@@ -1029,6 +1029,17 @@ const BC_RELAY = {
         ex.auto_reply = parseInt(r.auto_reply) === 1;
         ex.agent_id = r.agent_id ? parseInt(r.agent_id) : null;
         if (r.agent) ex.agent = r.agent;
+        // Its place on the list (a sale made it a customer; the agent
+        // handed it to you) as the server has it, and a heads-up for the
+        // hand-over, as a chat answered here would give.
+        if (r.stage) ex.stage = r.stage;
+        const wasEsc = !!ex.escalated;
+        ex.escalated = !!r.escalated;
+        ex.escalation = r.escalation || null;
+        if (ex.escalated && !wasEsc) {
+          try { BC_NOTIFY.fire('handover', { title: `Needs you: ${ex.name || 'customer'}`,
+            body: (r.escalation && (r.escalation.reason || r.escalation.message)) || 'The agent handed this chat to you', convId: r.id }); } catch (_) {}
+        }
       }
       touched.add(r.id);
     });
@@ -3254,7 +3265,7 @@ const INVOICE_PIPELINE = {
     // A direct chat's payment: the server runs its delivery (it holds the
     // conversation there, and delivers while you're away too). A payment you
     // confirmed by hand is handed over to it here.
-    if (data && String(data.conv_id || '').startsWith('dm_')) {
+    if (data && bcSrvInvoice(data)) {
       if (!data._retryDelivery && data.id) {
         ilog('direct chat payment — handing delivery to the server', { id: data.id });
         apiFetch('dm_shop_paid', { invoice_id: data.id })

@@ -4535,12 +4535,12 @@ const CtxMenu = ({x, y, msg, onClose, onOpen, inChat = false}) => {
 
   const requestDelete = () => {
     setConfirm({
-      title: 'Delete this contact?',
-      body:  'You can either remove just the contact from your list (keeps message history in the database for accounting / audit), or wipe everything including messages, AI memory, captured profile and purchase records.',
-      buttons: [
-        { label: 'Delete only',     kind: 'warn',   fn: () => { setConfirm(null); doDeleteConv();      onClose(); } },
-        { label: 'Delete + wipe history', kind: 'danger', fn: () => { setConfirm(null); doDeleteWithWipe(); onClose(); } },
-        { label: 'Cancel', kind: 'plain',  fn: () => setConfirm(null) },
+      title: 'Delete ' + name + '?',
+      choices: [
+        { icon: 'userx', label: 'Remove from list', sub: 'Messages and purchases stay on record.',
+          fn: () => { setConfirm(null); doDeleteConv(); onClose(); } },
+        { icon: 'trash', label: 'Delete and wipe', sub: 'Also erases messages, profile, purchases and AI memory.', danger: true,
+          fn: () => { setConfirm(null); doDeleteWithWipe(); onClose(); } },
       ],
     });
   };
@@ -4558,18 +4558,18 @@ const CtxMenu = ({x, y, msg, onClose, onOpen, inChat = false}) => {
   const dmHold = isDirect && typeof DM_AI !== 'undefined' && DM_AI.holdOf ? DM_AI.holdOf(dmTid) : null;
   const requestDmDelete = () => {
     setConfirm({
-      title: 'Delete this contact?',
-      body:  'Delete only removes the chat from your list (they keep their copy, and their purchases and keys stay on record). Delete + wipe also erases their profile, purchases and keys, AI memory, follow-ups, your agent’s state for this chat and any unpaid invoice.',
-      buttons: [
-        { label: 'Delete only', kind: 'warn', fn: async () => {
+      title: 'Delete ' + name + '?',
+      choices: [
+        { icon: 'userx', label: 'Remove from list', sub: 'They keep their copy. Purchases stay on record.',
+          fn: async () => {
             setConfirm(null); onClose();
             if (await DM_STORE.hide(dmTid)) bcToast(name + ' removed from your contacts', 'ok');
           } },
-        { label: 'Delete + wipe history', kind: 'danger', fn: async () => {
+        { icon: 'trash', label: 'Delete and wipe', sub: 'Also erases their profile, purchases, AI memory and unpaid invoices.', danger: true,
+          fn: async () => {
             setConfirm(null); onClose();
             if (await DM_STORE.wipe(dmTid)) bcToast(name + ' and all their data deleted', 'ok');
           } },
-        { label: 'Cancel', kind: 'plain', fn: () => setConfirm(null) },
       ],
     });
   };
@@ -4618,19 +4618,28 @@ const CtxMenu = ({x, y, msg, onClose, onOpen, inChat = false}) => {
     ],
   ];
 
-  // CONFIRM SUB-STATE — replaces the menu body with a small panel.
+  // CONFIRM SUB-STATE — replaces the menu body: the contact, then each way
+  // to go as its own row with one line on what it does, and Cancel.
   if (confirm) {
     return (
-      <div className="ctx" style={{...place, width: 260}} ref={ref} role="dialog" aria-label={confirm.title}>
-        <div className="ctx-confirm">
+      <div className="ctx ctx-wide" style={place} ref={ref} role="dialog" aria-label={confirm.title}>
+        <div className="ctx-top">
+          <Ava name={msg.name} col={msg.col} sz={26} src={msg.avatar}/>
           <div className="ctx-confirm-t">{confirm.title}</div>
-          <div className="ctx-confirm-b">{confirm.body}</div>
         </div>
-        <div className="ctx-btns">
-          {confirm.buttons.map((b, i) => (
-            <button key={i} type="button" className="ctx-btn" data-kind={b.kind} onClick={b.fn}>{b.label}</button>
+        <div className="ctx-line"/>
+        <div className="ctx-choices">
+          {confirm.choices.map((c, i) => (
+            <button key={i} type="button" className={'ctx-choice' + (c.danger ? ' ctx-del' : '')} onClick={c.fn}>
+              <CtxIco name={c.icon}/>
+              <span className="ctx-choice-txt">
+                <span className="ctx-choice-l">{c.label}</span>
+                <span className="ctx-choice-s">{c.sub}</span>
+              </span>
+            </button>
           ))}
         </div>
+        <button type="button" className="ctx-cancel" onClick={() => setConfirm(null)}>Cancel</button>
       </div>
     );
   }

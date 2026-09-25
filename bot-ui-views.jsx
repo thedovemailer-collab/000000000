@@ -2649,7 +2649,7 @@ const ContactListProfile = ({account, big = false}) => {
   // same vertical line as the magnifier below; "Sign out" ends on the line
   // of the search text's right padding.
   const box = big
-    ? { minHeight:28, margin:'2px 0 8px', padding:'0 0 0 2px' }
+    ? { minHeight:30, margin:'2px 0 9px', padding:'0 0 0 1px' }
     : { height:20, margin:'0 0 7px', padding:'0 4px 0 11px' };
   if (!account) return <div style={box} aria-hidden="true"/>;
   const name = String(account.display_name || account.username || account.email || '').trim();
@@ -2676,11 +2676,26 @@ const ContactListProfile = ({account, big = false}) => {
       {/* On a phone the name is the screen's title, like any messaging
           app's list header. */}
       <span title={[name, email].filter(Boolean).join(' · ')} onClick={()=>setNear(n => !n)} style={{
-        flex:'0 1 auto', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
-        fontSize: big ? 17 : 11.5, fontWeight: big ? 700 : 600,
-        letterSpacing: big ? '-0.025em' : '-0.005em', lineHeight: big ? '28px' : '20px',
-        color: big ? 'var(--t1)' : 'rgba(226,228,240,0.8)', cursor:'default',
-      }}>{name}</span>
+        flex:'0 1 auto', minWidth:0, display:'inline-flex', alignItems:'center', gap: big ? 9 : 0,
+        cursor:'default',
+      }}>
+        {/* On a phone: a small monogram, then the name at a size that
+            follows the screen (13–15px), not a shouting title. */}
+        {big && (
+          <span aria-hidden="true" style={{
+            flexShrink:0, width:26, height:26, borderRadius:'50%', display:'grid', placeItems:'center',
+            fontSize:11, fontWeight:650, letterSpacing:'0.01em', color:'rgba(236,238,248,0.92)',
+            background:'linear-gradient(145deg, color-mix(in oklab, var(--acc, #6c63ff) 42%, rgba(255,255,255,0.06)), rgba(255,255,255,0.04))',
+            boxShadow:'inset 0 0 0 0.5px rgba(255,255,255,0.14)',
+          }}>{(name.replace(/^@/, '')[0] || '?').toUpperCase()}</span>
+        )}
+        <span style={{
+          minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
+          fontSize: big ? 'clamp(13px, 3.6vw, 15px)' : 11.5, fontWeight: big ? 620 : 600,
+          letterSpacing: big ? '-0.012em' : '-0.005em', lineHeight: big ? '26px' : '20px',
+          color: big ? 'rgba(236,238,248,0.94)' : 'rgba(226,228,240,0.8)',
+        }}>{name}</span>
+      </span>
       <button type="button" onClick={signOut}
         onMouseEnter={()=>setOver(true)} onMouseLeave={()=>setOver(false)}
         onFocus={()=>setFocus(true)} onBlur={()=>setFocus(false)}
@@ -8049,6 +8064,11 @@ function bcViewport() {
   } catch (_) {}
   return { w: window.innerWidth || 1, h: window.innerHeight || 1 };
 }
+// The contact list's width when you haven't sized it: ~28% of the window.
+function bcAutoListW() {
+  const w = bcViewport().w || 1280;
+  return Math.round(Math.max(300, Math.min(400, w * 0.28)));
+}
 const PANE_CHAT_MIN_W = 400;   // narrowest chat column beside the list
 const PANE_LIST_MIN_W = 260;   // narrowest full-row list before folding
 const PANE_RAIL_BELOW = 110;   // same as MsgList's COLLAPSED_THRESHOLD
@@ -9069,13 +9089,31 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
   const [, bumpFresh] = React.useReducer(x => x + 1, 0);
   // Persist panel width across reloads. Below COLLAPSED_THRESHOLD the list
   // collapses to an avatar-only rail, like Telegram's narrow mode.
+  // Until you size it yourself (drag or double-click the edge) it follows
+  // the window: about 28% of it, 300–400px. 320 was the old fixed default,
+  // saved by every install, so a saved 320 counts as never chosen.
+  const panelUserSized = React.useRef(false);
   const [panelW,     setPanelW]    = React.useState(() => {
     try {
       const v = parseInt(localStorage.getItem('bc.contactlist.w') || '', 10);
-      if (Number.isFinite(v) && v >= 64 && v <= 520) return v;
+      const chosen = localStorage.getItem('bc.contactlist.wset') === '1' || v !== 320;
+      if (Number.isFinite(v) && v >= 64 && v <= 520 && chosen) { panelUserSized.current = true; return v; }
     } catch(e) {}
-    return 320;
+    return bcAutoListW();
   });
+  const markPanelSized = React.useCallback((on) => {
+    panelUserSized.current = on;
+    try { if (on) localStorage.setItem('bc.contactlist.wset', '1'); else localStorage.removeItem('bc.contactlist.wset'); } catch (_) {}
+  }, []);
+  React.useEffect(() => {
+    let raf = 0;
+    const fit = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => { if (!panelUserSized.current && !PANEL_RESIZE.active) setPanelW(w => (w < 110 ? w : bcAutoListW())); });
+    };
+    window.addEventListener('resize', fit);
+    return () => { window.removeEventListener('resize', fit); cancelAnimationFrame(raf); };
+  }, []);
   // (The write itself is debounced further down, alongside the resize drag.)
 
   // ── One-pane layout (see MSG_LAYOUT) ──
@@ -9698,7 +9736,7 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
     dragRef.current = null;
     // Hand the final width back to React (saved, and used for layout from
     // here on). It matches what is already on screen, so nothing moves.
-    if (Number.isFinite(d.w)) setPanelW(d.w);
+    if (Number.isFinite(d.w)) { setPanelW(d.w); if (d.moved !== false) markPanelSized(true); }
     document.body.style.userSelect = d.prevUserSelect || '';
     document.body.style.cursor     = d.prevCursor || '';
     setResizing(false);
@@ -9796,6 +9834,7 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
   // Persist panel width — debounced, so a drag writes once when it settles
   // rather than once per pixel. localStorage is synchronous.
   React.useEffect(() => {
+    if (!panelUserSized.current) return;
     const t = setTimeout(() => {
       try { localStorage.setItem('bc.contactlist.w', String(panelW)); } catch(e) {}
     }, 200);
@@ -10116,6 +10155,11 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
             // means collapsing no longer reshuffles the avatars — they stay
             // exactly where the operator was just looking at them.
             const live = SECTIONS.filter(s => groupedRows[s.key].length > 0);
+            // Headers only when they tell you something: two or more kinds
+            // of chat to tell apart, or chats that need you (Escalated).
+            // One plain list otherwise — a new account's few chats don't
+            // need an "Incoming" label over them.
+            const showHeads = live.length > 1 || (live.length === 1 && live[0].key === 'escalated');
 
             const people = q ? (
               <DmPeopleResult q={q} isCollapsed={isCollapsed}
@@ -10191,14 +10235,14 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
                   // Folding is a control that only exists on the expanded
                   // headers — the avatar rail has none to click, so it keeps
                   // showing every conversation, as it always has.
-                  const folded = !isCollapsed && !!foldedGroups[s.key];
+                  const folded = showHeads && !isCollapsed && !!foldedGroups[s.key];
                   // Folded rows stay mounted inside a fold (railFold), so
                   // folding a section — or the rail un-folding every section
                   // at once as it opens — slides smoothly instead of popping
                   // rows in and out, and their avatars never reload.
                   return (
                     <React.Fragment key={s.key}>
-                      {groupHeader(s, bucket.length, folded, si === 0)}
+                      {showHeads ? groupHeader(s, bucket.length, folded, si === 0) : null}
                       <div style={railFold(!folded)} aria-hidden={folded ? 'true' : undefined}>
                         <div style={RAIL_FOLD_INNER}>
                           {bucket.map((m,i) => renderRow(m, {lastInGroup: i===bucket.length-1}))}
@@ -10238,7 +10282,9 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
             // Same width transition as a snap, so the same suspension.
             const pane = e.currentTarget.closest('[data-msgpane]');
             // Opening from the rail never takes more than the chat can spare.
-            let target = panelW < COLLAPSED_THRESHOLD ? 320 : 64;
+            let target = panelW < COLLAPSED_THRESHOLD ? bcAutoListW() : 64;
+            // Collapsing is your choice (kept); opening again follows the window.
+            markPanelSized(target === 64);
             if (target > 64 && pane) {
               const maxW = Math.floor(pane.getBoundingClientRect().width - PANE_CHAT_MIN_W);
               if (maxW < 140) return;

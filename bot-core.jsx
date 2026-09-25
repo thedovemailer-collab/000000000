@@ -105,6 +105,11 @@ const BC_WRITES = {
 };
 window.bcWritesInFlight = () => BC_WRITES.n;
 
+// Invoices the server mints, watches and delivers: every direct chat's,
+// and those on a Telegram / Discord bot chat the server answered (srv).
+// The app leaves those to the server.
+const bcSrvInvoice = (i) => !!i && (String(i.conv_id || '').startsWith('dm_') || !!i.srv);
+
 const apiFetch = (action, body={}) => {
   const run = _withTimeout(action, (signal) =>
     fetch(`${API}?action=${action}`, {

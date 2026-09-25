@@ -3052,7 +3052,7 @@ const PAYMENTS_STORE = {
     const byId = new Map((this.invoices || []).map((x, i) => [String(x && x.id), i]));
     const next = (this.invoices || []).slice();
     rows.forEach(r => {
-      if (!r || !r.id || !String(r.conv_id || '').startsWith('dm_')) return;
+      if (!r || !r.id || !bcSrvInvoice(r)) return;
       // Deleted here a moment ago; a list fetched before the delete landed
       // must not bring it back.
       if (this._deleted.has(String(r.id))) return;
@@ -3094,7 +3094,7 @@ const PAYMENTS_STORE = {
       // Told straight away, in a request that survives this app closing
       // the moment after the click (the list save below, and the delivery
       // request the pipeline sends, may not get out in time).
-      if (patch.status === 'confirmed' && String(prevRow.conv_id || '').startsWith('dm_')) {
+      if (patch.status === 'confirmed' && bcSrvInvoice(prevRow)) {
         try {
           BC_WRITES.track(fetch(`${API}?action=dm_shop_paid`, { method: 'POST', keepalive: true, credentials: 'include',
             headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dm_shop_paid', invoice_id: id }) })).catch(() => {});
@@ -8936,7 +8936,7 @@ const INVOICE_PROCESSOR = {
         // single failure during the original delivery becomes permanent
         // and the customer never gets their files.
         // Direct chats' invoices are watched and delivered by the server.
-        const isDm = (i) => String((i && i.conv_id) || '').startsWith('dm_');
+        const isDm = (i) => bcSrvInvoice(i);
         const pending = PAYMENTS_STORE.invoices.filter(i =>
           i.status === 'pending' && i.address && i.coin && i.callback && !isDm(i)
         );
