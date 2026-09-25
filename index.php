@@ -252,6 +252,11 @@ h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; letter-spacing: -.01em;
 .lic-log { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--ln); display: grid; gap: 7px; }
 .lic-log div { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--t2); }
 .lic-log svg { width: 14px; height: 14px; color: var(--ok); flex: none; }
+.fee { display: inline-flex; align-items: center; gap: 10px; margin-top: 22px; padding: 7px 8px 7px 7px; border: 1px solid var(--ln); border-radius: 999px; background: rgba(255,255,255,.025); font-size: 12px; color: var(--t3); }
+.fee b { color: var(--t2); font-weight: 600; }
+.fee-ic { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: color-mix(in srgb, var(--fx1) 14%, transparent); color: var(--fx1); flex: none; }
+.fee-ic svg { width: 13px; height: 13px; }
+.fee-pct { padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.05); border: 1px solid var(--ln); color: var(--t2); font-size: 11px; font-weight: 600; }
 .lic-log time { margin-left: auto; color: var(--t3); font-size: 10.5px; }
 
 /* Payment flow */
@@ -558,29 +563,29 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
       <div class="rv">
         <span class="eyebrow">Licensing</span>
         <h2>Automated <em>licence management.</em></h2>
-        <p class="sub">Issued, renewed and verified without manual work.</p>
+        <p class="sub">Licences are issued, renewed and checked for you.</p>
         <ul class="list">
-          <li><svg><use href="#i-check"/></svg><span><b>Automatic issuance.</b> One key per unit, or combined terms on a single key.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Renewals.</b> Invoiced and applied to the existing key, even while you're offline.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Onboarding.</b> Usernames and account setup collected after purchase.</span></li>
-          <li><svg><use href="#i-check"/></svg><span><b>Verification API.</b> Validate keys from your own software.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Instant delivery.</b> A licence is sent as soon as payment is confirmed.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Automatic renewals.</b> Handled for you, even while you're offline.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Customer details.</b> Anything you need is collected after purchase.</span></li>
+          <li><svg><use href="#i-check"/></svg><span><b>Validation.</b> Check licences from your own software.</span></li>
         </ul>
       </div>
       <div class="lic rv" aria-label="Example licence">
         <div class="lic-in">
           <div class="lic-top">
-            <div class="p">Pro licence<span>Maya J. · Telegram</span></div>
+            <div class="p">Licence<span>Customer · Telegram</span></div>
             <span class="badge"><i></i>Active</span>
           </div>
-          <div class="serial">PRO-8F3K-Q2LM-7XWA</div>
+          <div class="serial">XXXX-XXXX-XXXX-XXXX</div>
           <div class="lic-rows">
-            <div><span>Devices</span><b>2</b></div>
+            <div><span>Plan</span><b>Monthly</b></div>
             <div class="exp" id="exp"><span>Valid until</span><b id="expv">12 Oct 2026</b></div>
-            <div><span>Bound to</span><b>@maya.j</b></div>
+            <div><span>Renewal</span><b>Automatic</b></div>
           </div>
           <div class="lic-log">
             <div><svg><use href="#i-check"/></svg> Issued after payment<time>Sep 12</time></div>
-            <div><svg><use href="#i-check"/></svg> Renewed · same key<time>just now</time></div>
+            <div><svg><use href="#i-check"/></svg> Renewed automatically<time>just now</time></div>
           </div>
         </div>
       </div>
@@ -607,7 +612,7 @@ footer::before { content: ''; position: absolute; top: 0; left: 50%; transform: 
           <li><svg><use href="#i-check"/></svg><span><b>Live rates.</b> Prices converted at the current market rate.</span></li>
           <li><svg><use href="#i-check"/></svg><span><b>Late payments.</b> Detected and fulfilled automatically.</span></li>
         </ul>
-        <div class="fee"><svg><use href="#i-shield"/></svg> Payments processed by CryptAPI · 1% transaction fee</div>
+        <div class="fee"><span class="fee-ic"><svg><use href="#i-shield"/></svg></span><span>Processed securely by <b>CryptAPI</b></span><span class="fee-pct">1% fee</span></div>
       </div>
     </div>
   </section>
