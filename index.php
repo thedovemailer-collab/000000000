@@ -19,13 +19,13 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>booqi</title>
+<title>Booqi — Handle it offline</title>
 <meta name="description" content="AI agents for Telegram, Discord and direct chats. Customer replies, crypto payments and licence delivery, fully automated.">
 <meta name="theme-color" content="#020b10">
 <meta name="apple-mobile-web-app-title" content="booqi">
-<meta property="og:title" content="booqi">
+<meta property="og:title" content="Booqi — Handle it offline">
 <meta property="og:description" content="AI agents that handle customer conversations on Telegram and Discord.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2.2C9.4 2.2 5 7 5 13.4V29.4l3.7-3 3.6 3 3.7-3 3.7 3 3.6-3 3.7 3V13.4C27 7 22.6 2.2 16 2.2z' fill='%23fff' stroke='%23000' stroke-width='1.8' stroke-linejoin='round'/%3E%3Cellipse cx='12' cy='13.6' rx='2.1' ry='2.8' fill='%23000'/%3E%3Cellipse cx='20' cy='13.6' rx='2.1' ry='2.8' fill='%23000'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%232dd4bf'/%3E%3Cstop offset='.55' stop-color='%230ea5e9'/%3E%3Cstop offset='1' stop-color='%234f46e5'/%3E%3C/linearGradient%3E%3CradialGradient id='h' cx='.3' cy='.22' r='.8'%3E%3Cstop offset='0' stop-color='%23fff' stop-opacity='.35'/%3E%3Cstop offset='.5' stop-color='%23fff' stop-opacity='0'/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='31' fill='url(%23g)'/%3E%3Ccircle cx='32' cy='32' r='31' fill='url(%23h)'/%3E%3Ccircle cx='32' cy='32' r='30' fill='none' stroke='%23fff' stroke-opacity='.25' stroke-width='1.5'/%3E%3Cpath d='M22.5 15v27' stroke='%23fff' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='37' r='9.5' fill='none' stroke='%23fff' stroke-width='6'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fredoka:wght@400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
