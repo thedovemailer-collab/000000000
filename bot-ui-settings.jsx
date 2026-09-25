@@ -6648,12 +6648,13 @@ const SS_Notifications = () => {
 // of <App/> via AUTH_STORE.set().
 //
 // Look: the app's OWN themed background (the animated .bg-base layer the
-// user picked in Preferences → Appearance — Mist over Forest by default)
-// shows straight through; this screen adds no backdrop of its own. Above a
-// quiet glass panel that uses the same fill, blur and controls as the
-// settings windows (--glass-a, --ln/--ln2, --acc) sits the company name in
-// large, translucent block letters, so the moving background reads through
-// the logo itself. State is shown quietly — no colour washes:
+// user picked in Preferences → Appearance) shows straight through. Above a
+// dark panel with full-width LOGIN / REGISTER tabs sits the company name in
+// Orbitron, filled with a teal-to-blue gradient that slides back and forth;
+// a glint rides the panel's top edge in step with it, like the logo's light
+// reflecting onto the panel. Fields have small blue caps labels over dark
+// rounded boxes, and the submit is a full-width indigo button with an icon.
+// State is shown quietly — no colour washes:
 //   busy     → the button label cross-fades to a spinner
 //   error    → a slight nudge, a hairline on the field, a neutral message
 //   success  → the label cross-fades to a check, then the panel fades out
@@ -6667,52 +6668,67 @@ const BCA_CSS = `
   --bca-acc: var(--acc, #6c63ff);
   --bca-ok: #30d158;
   --bca-err: #ff453a;
+  /* The look: a dark tabbed panel under an animated teal-to-blue wordmark. */
+  --bca-teal: #3dd4b0;
+  --bca-blue: #6b8fdb;
+  --bca-card: #16181c;
+  --bca-card2: #131417;
+  --bca-tab: #22252a;
+  --bca-field: #1d1f23;
+  --bca-edge: rgba(255,255,255,.09);
+  --bca-label: #4f78bd;
+  --bca-text: #e8e9ec;
+  --bca-dim: #71747c;
+  --bca-btn: #343f8e;
+  --bca-btn2: #2c3579;
+  --bca-btn-edge: #4d5cc4;
+  --bca-dur: 4.8s;
   position: fixed; inset: 0; z-index: 1000;
   /* Pinned from the top rather than centred: when the status line or the
      register fields open, the panel grows DOWNWARD and nothing above it
-     (the wordmark, the title) moves. */
+     (the wordmark, the tabs) moves. */
   display: flex; align-items: flex-start; justify-content: center;
-  padding: max(28px, calc(50vh - 250px)) 28px 28px; overflow-y: auto; overflow-x: hidden;
+  padding: max(28px, calc(50vh - 230px)) 28px 28px; overflow-y: auto; overflow-x: hidden;
   background: transparent;           /* the themed .bg-base shows through */
-  color: var(--t1, #eeeef5);
-  font-family: var(--font, 'Inter', sans-serif);
+  color: var(--bca-text);
+  font-family: 'DM Sans', var(--font, 'Inter', sans-serif);
   isolation: isolate;
 }
-
+.bca-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ── Stage: wordmark over the panel ─────────────────────────── */
-.bca-stage { width: 100%; max-width: 360px; margin: 0 auto;
-  display: flex; flex-direction: column; align-items: stretch; gap: 7px; }
+.bca-stage { width: 100%; max-width: 420px; margin: 0 auto;
+  display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
 
-/* The company name, set like a premium wordmark: Inter semibold, small
-   and widely tracked, sitting just above the panel's top-left corner. The
-   fill is translucent (a soft white-to-clear gradient, no outline) so the
-   animated background shows through the letters. */
+/* The wordmark: Orbitron, wide and bold, filled with a teal-to-blue
+   gradient that slides back and forth. The same sweep lights the panel's
+   top edge (.bca-glint), so the logo reads as reflecting onto it. */
 .bca-word {
-  align-self: flex-start; margin: 0 0 0 3px;
-  font: 600 14px/1 var(--font, 'Inter', sans-serif);
-  font-feature-settings: 'cv11', 'ss01';
-  letter-spacing: .34em; text-transform: uppercase; white-space: nowrap;
-  background: linear-gradient(180deg, rgba(255,255,255,.66) 0%, rgba(255,255,255,.36) 100%);
+  align-self: flex-start; margin: 0 0 0 2px;
+  font: 700 24px/1 'Orbitron', var(--font, 'Inter', sans-serif);
+  letter-spacing: .07em; text-transform: uppercase; white-space: nowrap;
+  background: linear-gradient(90deg, var(--bca-teal) 0%, #4cc2c6 28%, var(--bca-blue) 56%, #8aa4e6 72%, var(--bca-teal) 100%);
+  background-size: 260% 100%;
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: transparent;
+  filter: drop-shadow(0 0 14px rgba(61,212,176,.18));
   -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision;
   user-select: none; -webkit-user-select: none; pointer-events: none;
-  animation: bca-word-in .9s cubic-bezier(.16,1,.3,1) both;
+  animation: bca-word-in .9s cubic-bezier(.16,1,.3,1) both, bca-flow var(--bca-dur) ease-in-out infinite alternate;
   transition: opacity .38s cubic-bezier(.4,0,.2,1), transform .45s cubic-bezier(.4,0,.2,1);
 }
 @keyframes bca-word-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@keyframes bca-flow { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
 .bca[data-leaving="1"] .bca-word { opacity: 0; transform: translateY(-3px); }
 
-/* ── Panel — same glass as the settings windows ──────────────── */
+/* ── Panel ──────────────────────────────────────────────────── */
 .bca-card {
-  position: relative; width: 100%; max-width: 360px;
-  padding: 22px 22px 16px; border-radius: 14px;
-  background: rgba(12,13,24, var(--glass-a, .66));
-  backdrop-filter: blur(24px) saturate(170%) brightness(1.04);
-  -webkit-backdrop-filter: blur(24px) saturate(170%) brightness(1.04);
-  border: 1px solid var(--ln2, rgba(255,255,255,.10));
-  box-shadow: inset 0 .5px 0 rgba(255,255,255,.06), 0 24px 60px -28px rgba(0,0,0,.7);
+  position: relative; width: 100%; overflow: hidden;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #181a1e 0%, var(--bca-card) 40%, var(--bca-card2) 100%);
+  border: 1px solid var(--bca-edge);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04), 0 28px 70px -30px rgba(0,0,0,.85), 0 2px 10px rgba(0,0,0,.35);
   animation: bca-in .8s cubic-bezier(.16,1,.3,1) .08s both;
   transition: transform .45s cubic-bezier(.4,0,.2,1), opacity .38s cubic-bezier(.4,0,.2,1);
   will-change: opacity, transform;
@@ -6723,91 +6739,115 @@ const BCA_CSS = `
 @keyframes bca-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes bca-nudge { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }
 
-.bca-title { margin: 0 0 4px; font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -.015em; color: var(--t1, #eeeef5); }
-.bca-sub { margin: 0 0 16px; font-size: 12px; line-height: 1.5; color: var(--t2, #9898b4); }
+/* The reflection: a bright glint riding the panel's top edge with a soft
+   sheen spilling down over the tabs, sliding in step with the wordmark. */
+.bca-glint { position: absolute; top: 0; left: 0; right: 0; height: 60px; z-index: 3; pointer-events: none; overflow: hidden; }
+.bca-glint i {
+  position: absolute; top: 0; left: 0; width: 42%; height: 60px;
+  animation: bca-glint var(--bca-dur) ease-in-out infinite alternate;
+  will-change: transform;
+}
+.bca-glint i::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(61,212,176,.85) 30%, rgba(170,230,255,.95) 50%, rgba(107,143,219,.85) 70%, transparent 100%);
+}
+.bca-glint i::after {
+  content: ''; position: absolute; top: 0; left: 8%; right: 8%; height: 46px;
+  background: radial-gradient(ellipse 50% 100% at 50% 0%, rgba(80,200,200,.16) 0%, rgba(107,143,219,.07) 45%, transparent 75%);
+}
+@keyframes bca-glint { from { transform: translateX(-18%); } to { transform: translateX(156%); } }
 
-/* ── Sign in / Create account — the app's segmented control ─── */
-.bca-seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 2px; margin-bottom: 14px;
-  border-radius: 9px; background: rgba(0,0,0,.22); box-shadow: inset 0 0 0 1px rgba(255,255,255,.06); }
-.bca-seg-ind { position: absolute; top: 2px; bottom: 2px; left: 2px; width: calc(50% - 3px); border-radius: 7px;
-  background: rgba(255,255,255,.09);
-  box-shadow: inset 0 .5px 0 rgba(255,255,255,.08), 0 1px 2px rgba(0,0,0,.25);
-  transition: transform .3s cubic-bezier(.22,1,.36,1); }
-.bca-seg[data-mode="register"] .bca-seg-ind { transform: translateX(calc(100% + 2px)); }
-.bca-seg button { position: relative; z-index: 1; height: 26px; border-radius: 7px; font: 500 11.5px var(--font, 'Inter', sans-serif);
-  color: #8a8aa8; transition: color .14s ease; background: none; border: 0; cursor: pointer; }
-.bca-seg button:hover, .bca-seg button[aria-selected="true"] { color: var(--t1, #eeeef5); }
-.bca-seg button:focus-visible { outline: 2px solid rgba(255,255,255,.3); outline-offset: -2px; }
+/* ── LOGIN / REGISTER tabs — full width across the panel's top ─ */
+.bca-seg { position: relative; display: grid; grid-template-columns: 1fr 1fr;
+  background: var(--bca-card2); border-bottom: 1px solid var(--bca-edge); }
+.bca-seg::after { content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--bca-edge); pointer-events: none; }
+.bca-seg-ind { position: absolute; top: 0; bottom: 0; left: 0; width: 50%;
+  background: linear-gradient(180deg, #282b31 0%, var(--bca-tab) 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+  transition: transform .32s cubic-bezier(.22,1,.36,1); }
+.bca-seg[data-mode="register"] .bca-seg-ind { transform: translateX(100%); }
+.bca-seg button { position: relative; z-index: 1; height: 42px; background: none; border: 0; cursor: pointer;
+  font: 700 11.5px 'DM Sans', var(--font, 'Inter', sans-serif); letter-spacing: .13em; text-transform: uppercase;
+  color: var(--bca-dim); transition: color .16s ease; }
+.bca-seg button:hover { color: #a4a7ae; }
+.bca-seg button[aria-selected="true"] { color: #f3f4f6; }
+.bca-seg button:focus-visible { outline: 2px solid rgba(107,143,219,.55); outline-offset: -2px; }
+.bca-seg button:disabled { cursor: default; }
 
-/* ── Fields ─────────────────────────────────────────────────── */
-.bca-form { display: flex; flex-direction: column; gap: 9px; }
-.bca-swap { display: flex; flex-direction: column; gap: 9px; animation: bca-swap .35s cubic-bezier(.22,1,.36,1) both; }
+.bca-body { padding: 20px 20px 16px; }
+.bca-note { margin: -4px 0 14px; font-size: 12px; line-height: 1.5; color: #9fb4dc; }
+
+/* ── Fields — small blue caps label above a dark rounded box ── */
+.bca-form { display: flex; flex-direction: column; gap: 14px; }
+.bca-swap { display: flex; flex-direction: column; gap: 14px; animation: bca-swap .35s cubic-bezier(.22,1,.36,1) both; }
 @keyframes bca-swap { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.bca-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
-.bca-f { position: relative; min-width: 0; }
+.bca-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.bca-f { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.bca-lb { font: 700 10px/1 'DM Sans', var(--font, 'Inter', sans-serif); letter-spacing: .13em; text-transform: uppercase;
+  color: var(--bca-label); padding-left: 1px; user-select: none; }
+.bca-box { position: relative; }
 .bca-in {
-  width: 100%; height: 44px; padding: 17px 12px 4px; border-radius: 9px;
-  background: rgba(0,0,0,.18); border: 1px solid rgba(255,255,255,.08);
-  color: var(--t1, #eeeef5); font: 500 13px var(--font, 'Inter', sans-serif);
+  width: 100%; height: 42px; padding: 0 14px; border-radius: 10px;
+  background: var(--bca-field); border: 1px solid rgba(255,255,255,.08);
+  color: var(--bca-text); font: 400 14px 'DM Sans', var(--font, 'Inter', sans-serif);
   outline: none; transition: border-color .15s, background .15s, box-shadow .2s;
 }
-.bca-f[data-pad="1"] .bca-in { padding-right: 42px; }
+.bca-in::placeholder { color: #666970; opacity: 1; }
+.bca-f[data-pad="1"] .bca-in { padding-right: 44px; }
 .bca-in:hover { border-color: rgba(255,255,255,.13); }
-.bca-in:focus { background: rgba(13,14,23,.6); border-color: color-mix(in srgb, var(--bca-acc) 45%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bca-acc) 10%, transparent); }
+.bca-in:focus { background: #202227; border-color: rgba(98,120,214,.7);
+  box-shadow: 0 0 0 3px rgba(77,92,196,.18); }
 .bca-in:disabled { opacity: .6; }
-.bca-in:-webkit-autofill { -webkit-text-fill-color: var(--t1, #eeeef5); transition: background-color 9999s; box-shadow: 0 0 0 40px rgba(14,15,26,.96) inset; }
-.bca-lb { position: absolute; left: 13px; top: 14px; font-size: 12.5px; color: var(--t3, #5c5c7a); pointer-events: none;
-  transform-origin: left top; transition: transform .2s cubic-bezier(.22,1,.36,1), color .2s; }
-.bca-in:focus + .bca-lb, .bca-in:not(:placeholder-shown) + .bca-lb, .bca-in:-webkit-autofill + .bca-lb {
-  transform: translateY(-8px) scale(.8); color: var(--t2, #9898b4); }
-.bca-line { display: none; }
-.bca-f[data-invalid="1"] .bca-in { border-color: rgba(255,120,110,.26); }
-.bca-f[data-ok="1"] .bca-in { border-color: rgba(255,255,255,.14); }
+.bca-in:-webkit-autofill { -webkit-text-fill-color: var(--bca-text); transition: background-color 9999s; box-shadow: 0 0 0 40px var(--bca-field) inset; }
+.bca-f[data-invalid="1"] .bca-in { border-color: rgba(255,120,110,.4); }
+.bca-f[data-invalid="1"] .bca-lb { color: #d98a84; }
+.bca-f[data-ok="1"] .bca-in { border-color: rgba(61,212,176,.28); }
 .bca-reveal { position: absolute; right: 6px; top: 50%; translate: 0 -50%; width: 30px; height: 30px;
-  display: grid; place-items: center; border-radius: 7px; color: var(--t3, #5c5c7a); background: none; border: 0; cursor: pointer;
+  display: grid; place-items: center; border-radius: 7px; color: #6b6e76; background: none; border: 0; cursor: pointer;
   transition: background .15s, color .15s; }
-.bca-reveal:hover { background: rgba(255,255,255,.06); color: var(--t1, #eeeef5); }
-.bca-reveal:focus-visible { outline: 2px solid rgba(255,255,255,.3); }
+.bca-reveal:hover { background: rgba(255,255,255,.06); color: var(--bca-text); }
+.bca-reveal:focus-visible { outline: 2px solid rgba(107,143,219,.55); }
 
 /* Password strength (register) and caps lock hint */
-.bca-meta { display: flex; align-items: center; gap: 10px; min-height: 14px; margin-top: -2px; padding: 0 2px;
-  font-size: 10.5px; color: var(--t3, #5c5c7a); }
+.bca-meta { display: flex; align-items: center; gap: 10px; min-height: 14px; margin-top: -4px; padding: 0 2px;
+  font-size: 10.5px; color: var(--bca-dim); }
 .bca-meter { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
 .bca-meter i { height: 2px; border-radius: 2px; background: rgba(255,255,255,.07); transition: background .3s ease; }
 .bca-meter[data-s="1"] i:nth-child(-n+1) { background: var(--bca-err); }
 .bca-meter[data-s="2"] i:nth-child(-n+2) { background: var(--warn, #ff9f0a); }
-.bca-meter[data-s="3"] i:nth-child(-n+3) { background: var(--bca-acc); }
-.bca-meter[data-s="4"] i { background: var(--bca-ok); }
+.bca-meter[data-s="3"] i:nth-child(-n+3) { background: var(--bca-blue); }
+.bca-meter[data-s="4"] i { background: var(--bca-teal); }
 .bca-caps { color: var(--warn, #ff9f0a); display: inline-flex; align-items: center; gap: 5px; animation: bca-swap .25s ease both; }
 
 /* Status line (error / success) */
-.bca-msg { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .3s cubic-bezier(.22,1,.36,1); }
+.bca-msg { display: grid; grid-template-rows: 0fr; margin-top: -6px; transition: grid-template-rows .3s cubic-bezier(.22,1,.36,1); }
 .bca-msg[data-on="1"] { grid-template-rows: 1fr; }
+/* Hidden: take back the form gap it would otherwise hold open. */
+.bca-msg[data-on="0"] { margin-top: -14px; }
 .bca-msg > div { overflow: hidden; }
-.bca-msg p { margin: 2px 0 0; display: flex; align-items: flex-start; gap: 8px; padding: 8px 11px; border-radius: 8px;
-  font-size: 11.5px; line-height: 1.45; }
-.bca-msg p { color: var(--t2, #9898b4); background: rgba(255,255,255,.03); border: 1px solid var(--ln, rgba(255,255,255,.055)); }
+.bca-msg p { margin: 2px 0 0; display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border-radius: 9px;
+  font-size: 12px; line-height: 1.45; color: #a3a6ad; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); }
 .bca-msg p i { flex: 0 0 auto; width: 5px; height: 5px; margin-top: 6px; border-radius: 50%; background: rgba(255,255,255,.35); }
-.bca-msg[data-tone="err"] p i { background: rgba(255,120,110,.75); }
-.bca-msg[data-tone="ok"]  p i { background: rgba(120,220,160,.7); }
+.bca-msg[data-tone="err"] p { color: #e6aaa4; background: rgba(255,69,58,.06); border-color: rgba(255,69,58,.18); }
+.bca-msg[data-tone="err"] p i { background: rgba(255,120,110,.8); }
+.bca-msg[data-tone="ok"]  p i { background: var(--bca-teal); }
 
-/* ── Submit — the settings windows' primary button, in the accent ── */
+/* ── Submit — indigo, full width, icon + label ─────────────── */
 .bca-go {
-  position: relative; height: 38px; margin-top: 5px; border-radius: 9px; cursor: pointer;
-  color: #f2f1fe; font: 600 12.5px var(--font, 'Inter', sans-serif); letter-spacing: -.005em;
-  --bca-b: var(--bca-acc);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--bca-b) 90%, #fff 0%) 0%, color-mix(in srgb, var(--bca-b) 74%, #000) 100%);
-  border: .5px solid color-mix(in srgb, var(--bca-b) 40%, rgba(255,255,255,.3));
-  box-shadow: 0 1px 2px rgba(0,0,0,.35), inset 0 .5px 0 rgba(255,255,255,.14);
-  transition: filter .15s ease, transform .12s ease;
+  position: relative; height: 42px; margin-top: 4px; border-radius: 10px; cursor: pointer;
+  color: #e3e6ff; font: 700 14px 'DM Sans', var(--font, 'Inter', sans-serif); letter-spacing: .005em;
+  background: linear-gradient(180deg, var(--bca-btn) 0%, var(--bca-btn2) 100%);
+  border: 1px solid var(--bca-btn-edge);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 10px 24px -14px rgba(52,63,142,.9);
+  transition: filter .15s ease, transform .12s ease, box-shadow .2s ease;
   display: flex; align-items: center; justify-content: center; gap: 8px;
 }
-.bca-go:hover:not(:disabled) { filter: brightness(1.08); }
+.bca-go:hover:not(:disabled) { filter: brightness(1.12); box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 12px 28px -12px rgba(77,92,196,.9); }
 .bca-go:active:not(:disabled) { transform: translateY(.5px); }
 .bca-go:disabled { cursor: progress; }
-.bca-go:focus-visible { outline: 2px solid rgba(255,255,255,.35); outline-offset: 2px; }
+.bca-go:focus-visible { outline: 2px solid rgba(140,160,240,.6); outline-offset: 2px; }
 .bca-go-lbl { display: inline-flex; align-items: center; gap: 8px; animation: bca-lbl .26s cubic-bezier(.4,0,.2,1) both; }
+.bca-go-ico { width: 13px; height: 13px; flex: 0 0 auto; opacity: .9; }
 @keyframes bca-lbl { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 .bca-go span { position: relative; }
 .bca-spin { width: 13px; height: 13px; border-radius: 50%; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; animation: bca-rot .7s linear infinite; }
@@ -6816,20 +6856,20 @@ const BCA_CSS = `
 .bca-check path { stroke-dasharray: 24; stroke-dashoffset: 24; animation: bca-draw .45s .1s cubic-bezier(.65,0,.35,1) forwards; }
 @keyframes bca-draw { to { stroke-dashoffset: 0; } }
 
-.bca-foot { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 14px; padding-top: 12px;
-  border-top: 1px solid var(--ln, rgba(255,255,255,.055)); font-size: 11px; color: var(--t3, #5c5c7a); }
-.bca-link { font: 500 11px var(--font, 'Inter', sans-serif); color: var(--t2, #9898b4); background: none; border: 0; cursor: pointer;
+.bca-foot { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 16px; padding-top: 13px;
+  border-top: 1px solid rgba(255,255,255,.06); font-size: 11.5px; color: var(--bca-dim); }
+.bca-link { font: 500 11.5px 'DM Sans', var(--font, 'Inter', sans-serif); color: #9fb4dc; background: none; border: 0; cursor: pointer;
   padding: 3px 6px; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; transition: color .15s, background .15s; }
 .bca-link svg { transition: transform .2s ease; }
-.bca-link:hover { color: var(--t1, #eeeef5); background: rgba(255,255,255,.05); }
+.bca-link:hover { color: #dbe4f7; background: rgba(255,255,255,.05); }
 .bca-link:hover svg { transform: translateX(2px); }
-.bca-link:focus-visible { outline: 2px solid rgba(255,255,255,.3); }
+.bca-link:focus-visible { outline: 2px solid rgba(107,143,219,.55); }
 
 @media (max-width: 440px) {
-  .bca { padding: 16px; }
-  .bca-card { padding: 20px 16px 14px; }
+  .bca { padding: 20px 16px; }
+  .bca-body { padding: 18px 16px 14px; }
   .bca-row2 { grid-template-columns: 1fr; }
-  .bca-word { font-size: 19px; }
+  .bca-word { font-size: 22px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .bca *, .bca *::before, .bca *::after { animation-duration: .001s !important; animation-iteration-count: 1 !important; }
@@ -6839,8 +6879,15 @@ const BCA_CSS = `
 html[data-motion="reduced"] .bca *, html[data-motion="reduced"] .bca *::before, html[data-motion="reduced"] .bca *::after {
   animation-duration: .001s !important; animation-iteration-count: 1 !important; }
 `;
+// The wordmark's Orbitron and the panel's DM Sans come from Google Fonts,
+// which the app already loads Inter from. Added here so this screen stays
+// self-contained.
+const BCA_FONTS = 'https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Orbitron:wght@700&display=swap';
 const ensureAuthStyles = () => {
   if (typeof document === 'undefined' || document.getElementById('bca-style')) return;
+  const fl = document.createElement('link');
+  fl.id = 'bca-fonts'; fl.rel = 'stylesheet'; fl.href = BCA_FONTS;
+  document.head.appendChild(fl);
   const st = document.createElement('style');
   st.id = 'bca-style';
   st.textContent = BCA_CSS;
@@ -6860,15 +6907,16 @@ const bcaStrength = (p) => {
 };
 const BCA_STRENGTH_LABEL = ['', 'Too weak', 'Fair', 'Good', 'Strong'];
 
-const BcaField = ({id, label, type = 'text', value, onChange, autoComplete, autoFocus, disabled, invalid, ok, right, onKeyUp, inputRef}) => (
+const BcaField = ({id, label, type = 'text', value, onChange, autoComplete, autoFocus, disabled, invalid, ok, right, onKeyUp, inputRef, placeholder}) => (
   <div className="bca-f" data-invalid={invalid ? '1' : undefined} data-ok={ok ? '1' : undefined} data-pad={right ? '1' : undefined}>
-    <input id={id} ref={inputRef} className="bca-in" type={type} value={value} placeholder=" "
-      onChange={e => onChange(e.target.value)} onKeyUp={onKeyUp}
-      autoComplete={autoComplete} autoFocus={autoFocus} disabled={disabled}
-      aria-invalid={invalid ? 'true' : undefined} spellCheck={false} autoCapitalize="off"/>
     <label htmlFor={id} className="bca-lb">{label}</label>
-    <span className="bca-line" aria-hidden="true"/>
-    {right}
+    <div className="bca-box">
+      <input id={id} ref={inputRef} className="bca-in" type={type} value={value} placeholder={placeholder || ''}
+        onChange={e => onChange(e.target.value)} onKeyUp={onKeyUp}
+        autoComplete={autoComplete} autoFocus={autoFocus} disabled={disabled}
+        aria-invalid={invalid ? 'true' : undefined} spellCheck={false} autoCapitalize="off"/>
+      {right}
+    </div>
   </div>
 );
 
@@ -7003,7 +7051,7 @@ const LoginRegister = () => {
     </svg>
   );
   const pwdField = (autoComplete) => (
-    <BcaField id="bca-pwd" label={isLogin ? 'Password' : 'Password (8+ characters)'}
+    <BcaField id="bca-pwd" label="Password" placeholder={isLogin ? '••••••••' : '8+ characters'}
       type={showPwd ? 'text' : 'password'} value={password}
       onChange={v => { setPassword(v); clearBad('password'); }}
       onKeyUp={capsCheck} autoComplete={autoComplete} disabled={busy}
@@ -7020,7 +7068,9 @@ const LoginRegister = () => {
     ? <><svg className="bca-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>{isLogin ? 'Welcome back' : 'You’re in'}</span></>
     : state === 'busy'
       ? <><i className="bca-spin" aria-hidden="true"/><span>{isLogin ? 'Signing in' : 'Creating workspace'}</span></>
-      : <span>{isLogin ? 'Sign in' : 'Create workspace'}</span>;
+      : isLogin
+        ? <><svg className="bca-go-ico" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17 10V7A5 5 0 0 0 7 7v3H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-1zM9 7a3 3 0 0 1 6 0v3H9V7z"/></svg><span>Sign In</span></>
+        : <><svg className="bca-go-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M19 8v6M16 11h6"/></svg><span>Create Account</span></>;
 
   const msgTone = okMsg && state === 'success' ? 'ok' : (err ? 'err' : '');
 
@@ -7032,50 +7082,45 @@ const LoginRegister = () => {
       <div className="bca-word" role="img" aria-label="BotCommand">BotCommand</div>
 
       <main className="bca-card" ref={cardRef} data-entered={entered ? '1' : undefined} aria-labelledby="bca-title" aria-busy={busy ? 'true' : undefined}>
-        <h1 id="bca-title" className="bca-title" key={'t-' + mode} style={{animation: 'bca-swap .5s cubic-bezier(.22,1,.36,1) both'}}>
-          {isLogin ? 'Welcome back' : 'Create your workspace'}
-        </h1>
-        <p className="bca-sub">
-          {isLogin
-            ? 'Sign in with your email or username to continue.'
-            : 'Agents, conversations and products stay private to your account.'}
-        </p>
+        {/* The wordmark's light, reflected along the panel's top edge. */}
+        <span className="bca-glint" aria-hidden="true"><i/></span>
+        <h1 id="bca-title" className="bca-sr">{isLogin ? 'Sign in to BotCommand' : 'Create your BotCommand account'}</h1>
+
+        <div className="bca-seg" role="tablist" aria-label="Account" data-mode={mode}>
+          <span className="bca-seg-ind" aria-hidden="true"/>
+          <button type="button" role="tab" aria-selected={isLogin} onClick={() => setMode('login')} disabled={busy}>Login</button>
+          <button type="button" role="tab" aria-selected={!isLogin} onClick={() => setMode('register')} disabled={busy}>Register</button>
+        </div>
+
+        <div className="bca-body">
         {(() => {
           // Arrived from someone's contact link: say who they're about to message.
           const pend = (typeof DM_PENDING !== 'undefined') ? DM_PENDING.peek() : '';
           return pend ? (
-            <p className="bca-sub" style={{marginTop:-4, color:'color-mix(in oklab, var(--acc, #6c63ff) 40%, #d8d9ea)'}}>
-              {isLogin ? 'Sign in' : 'Create an account'} to message @{pend}.
-            </p>
+            <p className="bca-note">{isLogin ? 'Sign in' : 'Create an account'} to message @{pend}.</p>
           ) : null;
         })()}
-
-        <div className="bca-seg" role="tablist" aria-label="Account" data-mode={mode}>
-          <span className="bca-seg-ind" aria-hidden="true"/>
-          <button type="button" role="tab" aria-selected={isLogin} onClick={() => setMode('login')} disabled={busy}>Sign in</button>
-          <button type="button" role="tab" aria-selected={!isLogin} onClick={() => setMode('register')} disabled={busy}>Create account</button>
-        </div>
 
         <form onSubmit={submit} className="bca-form" noValidate>
           <div className="bca-swap" key={mode}>
             {isLogin ? (
               <>
-                <BcaField id="bca-login" label="Email or username" value={login}
+                <BcaField id="bca-login" label="Username or email" placeholder="your@email.com" value={login}
                   onChange={v => { setLogin(v); clearBad('login'); }}
                   autoComplete="username" autoFocus disabled={busy} invalid={bad.login}/>
                 {pwdField('current-password')}
               </>
             ) : (
               <>
-                <BcaField id="bca-email" type="email" label="Email" value={email}
+                <BcaField id="bca-email" type="email" label="Email" placeholder="your@email.com" value={email}
                   onChange={v => { setEmail(v); clearBad('email'); }}
                   autoComplete="email" autoFocus disabled={busy} invalid={bad.email}
                   ok={/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())}/>
                 <div className="bca-row2">
-                  <BcaField id="bca-user" label="Username" value={username}
+                  <BcaField id="bca-user" label="Username" placeholder="yourname" value={username}
                     onChange={v => { setUsername(v); clearBad('username'); }}
                     autoComplete="username" disabled={busy} invalid={bad.username}/>
-                  <BcaField id="bca-display" label="Display name" value={display}
+                  <BcaField id="bca-display" label="Display name" placeholder="Optional" value={display}
                     onChange={setDisplay} autoComplete="name" disabled={busy}/>
                 </div>
                 {pwdField('new-password')}
@@ -7118,6 +7163,7 @@ const LoginRegister = () => {
             Explore the demo
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           </button>
+        </div>
         </div>
       </main>
       </div>
