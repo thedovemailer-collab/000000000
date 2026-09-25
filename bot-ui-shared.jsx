@@ -205,7 +205,8 @@ html[data-glass="solid"] .bc-comp { background: color-mix(in srgb, var(--comp-ti
 .bc-send-lbl > span { grid-area: 1 / 1; white-space: nowrap; transition: opacity .18s ease, transform .26s cubic-bezier(.16,1,.3,1); }
 .bc-send-lbl > span[data-on="0"] { opacity: 0; transform: translateY(5px); }
 .bc-send-ico { display: inline-flex; opacity: .8; }
-/* Send — manual mode: an icon button that appears once there's something to send. */
+/* Send — manual mode: an icon button, always there so there's a visible way to
+   send (phones have no Enter key); dimmed until there's something to send. */
 .bc-go { all: unset; box-sizing: border-box; flex-shrink: 0; width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center; color: var(--t1);
   background: color-mix(in oklab, var(--acc, #6c63ff) 26%, rgba(255,255,255,0.03));
@@ -213,9 +214,26 @@ html[data-glass="solid"] .bc-comp { background: color-mix(in srgb, var(--comp-ti
   transition: opacity .18s ease, transform .22s cubic-bezier(.16,1,.3,1), background-color .15s ease; }
 .bc-go:hover { background: color-mix(in oklab, var(--acc, #6c63ff) 36%, rgba(255,255,255,0.04)); }
 .bc-go:active { transform: scale(.94); }
-.bc-go[data-show="0"] { opacity: 0; transform: scale(.8); pointer-events: none; }
+.bc-go[data-show="0"] { color: var(--t3); background: rgba(255,255,255,0.04); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+  opacity: .55; cursor: default; pointer-events: none; }
 .bc-send:focus-visible, .bc-go:focus-visible, .bc-ibtn:focus-visible, .bc-dr-link:focus-visible, .bc-dr-x:focus-visible {
   outline: none; box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--acc, #6c63ff) 55%, transparent); }
+/* Phones and tablets. The composer clears the home bar; on a phone it
+   takes the chat's full width (less a small margin) instead of floating in
+   the middle. Fingers get bigger targets, the tray's remove buttons show
+   without a hover, and text is a size a phone can read. */
+.ipc .bc-comp { margin-bottom: env(safe-area-inset-bottom); }
+@media (max-width: 560px) {
+  .ipc .bc-comp { width: calc(100% - 16px) !important; bottom: 8px !important; }
+}
+@media (pointer: coarse) {
+  .bc-row { padding: 6px 7px; gap: 6px; }
+  .bc-ibtn, .bc-go { width: 36px; height: 36px; border-radius: 10px; }
+  .bc-send { height: 36px; padding: 0 10px 0 13px; }
+  .bc-input { font-size: 15px; padding: 7px 4px; }
+  .bc-tray-x { opacity: 1; }
+  .bc-dr-x { width: 30px; height: 30px; }
+}
 @media (prefers-reduced-motion: reduce) {
   /* The countdown line is information, not decoration — it keeps running. */
   .bc-comp, .bc-comp *:not(.bc-dr-fill):not(.bc-dr-run):not(.bc-dr-comet) { animation: none !important; transition: none !important; }
@@ -737,6 +755,13 @@ const dragHasFiles = (e) => {
 // WebView2 would navigate the whole app to it (a PDF replaced the UI). The
 // host opens files with their default program and saves them through a
 // real Save As dialog instead. In a plain browser preview the link works.
+// Touch screens have no hover. The chat composers slide out of the way until
+// the pointer comes near them, which a finger never does, so there they
+// stay on screen.
+const bcNoHover = () => {
+  try { return !!(window.matchMedia && window.matchMedia('(hover: none)').matches); }
+  catch (_) { return false; }
+};
 const bcInHost = () => {
   try { return !!(window.BotBridge && typeof window.BotBridge.isWebView2 === 'function' && window.BotBridge.isWebView2()); }
   catch (_) { return false; }
@@ -7027,7 +7052,7 @@ const InPageChatView = ({msg, onClose, onBack, backTarget, chatWidth, _convSig})
         // activity — the composer sliding away with attachments sitting in
         // it would read as the app having thrown them out.
         const composerActive = hover || focused || hasText || hasAiDraft
-          || atts.length > 0 || attBusy || dragOver || !!act;
+          || atts.length > 0 || attBusy || dragOver || !!act || bcNoHover();
         // isFirstRenderOfConv is computed at render time from renderedMsgIdRef
         // vs msg.id — true on the very first render of a new conv. This is
         // the correct gate for suppressing the composer slide-in transition.
@@ -8870,7 +8895,7 @@ const GhostChatView = ({onClose, onBack, backTarget, chatWidth}) => {
   const gcInRef   = React.useRef(null);
   useComposerHeight(gcWrapRef, gcInRef);
   ensureComposerStyles();
-  const composerActive = hover || focused || hasText || busy;
+  const composerActive = hover || focused || hasText || busy || bcNoHover();
 
   return (
     <div className="ipc" lang={lang} dir={rtl ? 'rtl' : 'ltr'} onScroll={pinClipScroll}
@@ -10224,7 +10249,7 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
 
   const wrapRef = React.useRef(null), inRef = React.useRef(null);
   useComposerHeight(wrapRef, inRef);
-  const composerActive = hover || focused || hasText || hasAiDraft || atts.length > 0 || attBusy || dragOver || !!(editRow && editRow.tid === tid);
+  const composerActive = hover || focused || hasText || hasAiDraft || atts.length > 0 || attBusy || dragOver || !!(editRow && editRow.tid === tid) || bcNoHover();
   const keyState = DM_KEYS.state;
 
   if (!th) {

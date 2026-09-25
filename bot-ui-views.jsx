@@ -2637,7 +2637,17 @@ const BriefingPill = () => {
 // focus reaches it), then fades in as muted text that only warms to red
 // under the pointer itself. Signing out still asks for confirmation, so a
 // stray click can't end the session. Fixed height: the search never moves.
-const ContactListProfile = ({account}) => {
+// `extra`: controls that ride this line when there's nowhere else for them
+// (the balance and notification chips, on a phone — see MsgList).
+// The balance and notification chips that sit top-right of the dashboard.
+// In one-pane mode (a phone) the dashboard isn't on screen, so the list
+// header carries them instead (bot-ui-widgets.jsx draws both).
+const ListHeaderChips = () => {
+  const PB = window.ProfitBubble, NB = window.NotificationsBubble;
+  if (!PB && !NB) return null;
+  return <>{PB && <PB/>}{NB && <NB/>}</>;
+};
+const ContactListProfile = ({account, extra = null}) => {
   const [near, setNear] = React.useState(false);
   const [focus, setFocus] = React.useState(false);
   const [over, setOver] = React.useState(false);
@@ -2645,7 +2655,9 @@ const ContactListProfile = ({account}) => {
   // Left inset 11px = the search field's own padding, so the name sits on the
   // same vertical line as the magnifier below; "Sign out" ends on the line
   // of the search text's right padding.
-  const box = { height:20, margin:'0 0 7px', padding:'0 4px 0 11px' };
+  const box = extra
+    ? { minHeight:28, margin:'2px 0 8px', padding:'0 0 0 11px' }
+    : { height:20, margin:'0 0 7px', padding:'0 4px 0 11px' };
   if (!account) return <div style={box} aria-hidden="true"/>;
   const name = String(account.display_name || account.username || account.email || '').trim();
   const email = String(account.email || '').trim();
@@ -2667,11 +2679,13 @@ const ContactListProfile = ({account}) => {
         display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
         userSelect:'none',
       }}>
-      <span title={[name, email].filter(Boolean).join(' · ')} style={{
+      {/* A touch screen has no hover to reveal Sign out: tapping the name does. */}
+      <span title={[name, email].filter(Boolean).join(' · ')} onClick={()=>setNear(n => !n)} style={{
         flex:'0 1 auto', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
         fontSize:11.5, fontWeight:600, letterSpacing:'-0.005em', lineHeight:'20px',
         color:'rgba(226,228,240,0.8)', cursor:'default',
       }}>{name}</span>
+      {extra && <span style={{flex:1}}/>}
       <button type="button" onClick={signOut}
         onMouseEnter={()=>setOver(true)} onMouseLeave={()=>setOver(false)}
         onFocus={()=>setFocus(true)} onBlur={()=>setFocus(false)}
@@ -2696,6 +2710,7 @@ const ContactListProfile = ({account}) => {
         </svg>
         <span>{busy ? 'Signing out…' : 'Sign out'}</span>
       </button>
+      {extra && <div style={{display:'flex', alignItems:'center', gap:6, flexShrink:0}}>{extra}</div>}
     </div>
   );
 };
@@ -9225,6 +9240,15 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
     MSG_LAYOUT.single = false;
     MSG_LAYOUT.listHidden = false;
   }, [stopPaneAnims]);
+  // One-pane list: the balance / notification chips live in the list header
+  // (ListHeaderChips), so their popovers may open while the dashboard is
+  // hidden (see bot-ui-widgets.css, .bcw-pop).
+  React.useEffect(() => {
+    const on = paneView === 'list';
+    if (on) document.body.setAttribute('data-bcw-chips', 'list');
+    else document.body.removeAttribute('data-bcw-chips');
+    return () => document.body.removeAttribute('data-bcw-chips');
+  }, [paneView]);
 
   // ── Live window resize (see LIVE WINDOW RESIZE in BotCommand.html) ──
   // While a window edge is being dragged:
@@ -9952,7 +9976,7 @@ const MsgList = ({openInPage, inPageChat, goBackInPage, chatHistory, onOpenSetti
           {/* The signed-in account — one quiet header line above the search
               (replaces the briefing / weather ticker and the account card
               that used to head the settings menu). Sign out lives here. */}
-          <ContactListProfile account={account}/>
+          <ContactListProfile account={account} extra={single ? <ListHeaderChips/> : null}/>
           {/* Search bar — muted glass, matches widget surface. The settings
               gear sits at its right end, inset 4px from the top, bottom and
               right edges, after a hairline. */}

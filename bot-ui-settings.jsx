@@ -2049,10 +2049,71 @@ const DmShareButton = React.memo(function DmShareButton() {
   );
 });
 
+// ── SETTINGS ON A PHONE ──────────────────────────────────────
+// No room for a floating window beside its dock, so on a narrow screen (or
+// a phone on its side) the
+// settings become one full-screen sheet: the page tabs (or the open item's
+// back trail) run across a bar at the top, the section circles become a
+// tab bar along the bottom with a close button at its end, and the window
+// fills the room between. Dragging and resizing don't apply. Injected
+// after the window's own styles, and !important because the window writes
+// its position straight onto the elements.
+const SSET_PHONE_TOP = SSET_TOP_H + 12;
+const SSET_PHONE_BAR = 58;
+const ensureSettingsPhoneStyles = () => {
+  if (typeof document === 'undefined' || document.getElementById('sset-phone-style')) return;
+  const st = document.createElement('style');
+  st.id = 'sset-phone-style';
+  st.textContent = `
+.sset-sw-close { display: none !important; }
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+  .sset-subpop, .sset-subpop[data-tall="1"], .sset-subpop[data-fit="1"] {
+    left: 0 !important; right: 0 !important;
+    top: calc(${SSET_PHONE_TOP}px + env(safe-area-inset-top)) !important;
+    bottom: calc(${SSET_PHONE_BAR}px + env(safe-area-inset-bottom)) !important;
+    width: auto !important; height: auto !important; min-width: 0 !important; max-width: none !important;
+    min-height: 0 !important; max-height: none !important;
+    transform: none !important; border-radius: 0 !important; box-shadow: none !important;
+    animation: sset-phone-in 200ms cubic-bezier(0.16,1,0.3,1) both !important; }
+  .sset-subpop.sset-subpop-out { animation: sset-phone-out 140ms ease-in both !important; }
+  /* An open item has its own back trail at the top; the tab bar steps aside. */
+  .sset-subpop[data-focus="1"] { bottom: env(safe-area-inset-bottom) !important; }
+  .sset-pop-grab, .sset-pop-resize { display: none !important; }
+  .sset-pop-backdrop { background: rgba(4,5,12,0.92); }
+
+  .sset-top { left: 0 !important; right: 0 !important; top: 0 !important; max-width: none !important;
+    height: calc(${SSET_PHONE_TOP}px + env(safe-area-inset-top)) !important;
+    padding: env(safe-area-inset-top) 10px 0; box-sizing: border-box; align-items: center;
+    background: #10111d; border-bottom: 1px solid rgba(255,255,255,0.06);
+    pointer-events: auto; overflow-x: auto; scrollbar-width: none; }
+  .sset-top::-webkit-scrollbar { display: none; }
+  .sset-top-shape { display: none !important; }
+
+  .sset-switch { left: 0 !important; right: 0 !important; top: auto !important; bottom: 0 !important; width: auto !important;
+    height: calc(${SSET_PHONE_BAR}px + env(safe-area-inset-bottom));
+    flex-direction: row; justify-content: space-around; align-items: center; gap: 0;
+    padding: 0 6px env(safe-area-inset-bottom); border-radius: 0; border-width: 1px 0 0;
+    background: #10111d; box-shadow: none; }
+  .sset-switch-ind { display: none; }
+  .sset-sw { width: 42px; height: 42px; border-radius: 12px; }
+  .sset-sw svg { width: 19px; height: 19px; }
+  .sset-sw[data-on="1"] { background: color-mix(in oklab, var(--acc, #6c63ff) 22%, rgba(255,255,255,0.03));
+    box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--acc, #6c63ff) 45%, transparent); }
+  .sset-sw::after { display: none; }
+  .sset-sw-sep { width: 1px; height: 20px; margin: 0; }
+  .sset-sw-dot { top: 8px; right: 8px; }
+  .sset-sw-close { display: inline-flex !important; color: rgba(200,203,220,0.75); }
+}
+@keyframes sset-phone-in  { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes sset-phone-out { from { opacity: 1; } to { opacity: 0; transform: translateY(6px); } }`;
+  document.head.appendChild(st);
+};
+
 // The section circles docked to the open window's left edge. `swRef` is
 // owned by the window, which positions this element directly.
-const SettingsSwitcher = React.memo(function SettingsSwitcher({swRef, activeRow, closing, focus, onSelect}) {
+const SettingsSwitcher = React.memo(function SettingsSwitcher({swRef, activeRow, closing, focus, onSelect, onClose}) {
   ensureSettingsDockStyles();
+  ensureSettingsPhoneStyles();
   const live = usePlatformsLive();
   const indRef = React.useRef(null);
   const btnRefs = React.useRef({});
@@ -2109,6 +2170,15 @@ const SettingsSwitcher = React.memo(function SettingsSwitcher({swRef, activeRow,
           </React.Fragment>
         );
       })}
+      {/* Phones only (see SETTINGS ON A PHONE): a full-screen sheet has no
+          outside to tap, so the tab bar ends with a way out. */}
+      {onClose && (
+        <button type="button" className="sset-sw sset-sw-close" aria-label="Close settings" tabIndex={-1}
+          onClick={onClose}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      )}
     </nav>
   );
 });
@@ -5163,7 +5233,7 @@ const SettingsSubPanelPopup = ({activeRow, popClosing, tweaks, setTweak, onClose
 
       {/* Section circles, docked to the window's left edge. They step
           aside while an item is open, like the page tabs. */}
-      <SettingsSwitcher swRef={swRef} activeRow={activeRow} closing={popClosing} focus={!!crumb} onSelect={selectSection}/>
+      <SettingsSwitcher swRef={swRef} activeRow={activeRow} closing={popClosing} focus={!!crumb} onSelect={selectSection} onClose={close}/>
 
       {/* The top slot, docked above the window. Holds one pill: the open
           item's trail if there is one, else this section's pages

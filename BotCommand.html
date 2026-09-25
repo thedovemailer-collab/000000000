@@ -2,7 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- viewport-fit=cover lets the app use the whole screen on phones with a
+     notch or home bar (the safe-area insets below keep content clear of
+     them). maximum-scale=1 stops iOS zooming the page whenever a text field
+     is tapped; pinch-zoom still works. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>BotCommand</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -612,6 +616,20 @@ html[data-host-oversize] .app { height: 100%; }
 
 /* ── APP SHELL ── */
 .app   { position: relative; z-index: 1; display: flex; height: 100vh; overflow: hidden; }
+/* ── PHONES, TABLETS AND TOUCH ──
+   100vh on a phone is the height with the browser's bars hidden, so the
+   bottom of the app sat under the address bar; dvh follows the bars.
+   The app keeps clear of a notch and rounded corners (the bottom inset is
+   left to the parts that sit at the bottom: the chat composer and the
+   settings tab bar). */
+.app   { height: 100dvh; box-sizing: border-box;
+         padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+html, body { -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+@media (max-width: 560px) {
+  /* A phone's chat: slim side gutters, and bubbles may use more of the row. */
+  :root { --thread-pad-x: 10px; --thread-pad-y: 14px; }
+  .ipc-thread[data-col] { --bub-max: 84%; }
+}
 .main  { display: flex; flex-direction: column; flex: 1; min-width: 0; overflow: hidden; }
 .content { flex: 1; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
 
