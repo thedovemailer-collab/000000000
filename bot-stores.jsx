@@ -7645,11 +7645,99 @@ function dmFileFromText(text) {
   if (c && kind !== 'image' && c === name) c = '';
   return { c, mt: kind, mu: url, mn: name };
 }
+// ── FILES YOU SEND IN A DIRECT CHAT ──────────────────────────────────
+// Sealed like the messages: each file is encrypted here with its own random
+// key and uploaded in parts (api.php dm_file_put), so the server only ever
+// holds ciphertext. The key, name and type travel inside the message body
+// ({ k:'file', f:{…} }), so only the two people in the chat can open it.
+// Opening one downloads the ciphertext (dm_file_get), decrypts it and hands
+// the bubble a data: URL — the same kind of URL every other chat's
+// attachments use, so pictures, video, audio and file cards (open / save in
+// the desktop app included) all work unchanged.
+const DM_FILE_PART = 786432;             // bytes per upload part — must match api.php
+const DM_FILE_AAD  = 'bc-dm-file-v1';
+const DM_FILES = {
+  urls: new Map(),      // file id → data: URL, once opened (or sent from this browser)
+  failed: new Map(),    // file id → why it couldn't be opened
+  _busy: new Set(),     // file ids being fetched
+  kindOf(f) {
+    const k = f && f.k;
+    return ['image', 'video', 'audio', 'document'].includes(k) ? k : 'document';
+  },
+  // The text standing in for a file wherever only text will do: the agent's
+  // history, the server's away replies, and an app too old to draw it.
+  label(f, caption) {
+    const k = this.kindOf(f);
+    const what = k === 'image' ? 'Photo' : k === 'video' ? 'Video' : k === 'audio' ? 'Audio' : 'File';
+    return (caption ? caption + '\n' : '') + `[${what}: ${String((f && f.n) || 'file')}]`;
+  },
+  // What a row carrying this file shows right now.
+  fields(f) {
+    const id = Number(f && f.id) || 0;
+    const url = this.urls.get(id);
+    if (url) return { mu: url, mp: false, me: '' };
+    const why = this.failed.get(id);
+    return why ? { mu: '', mp: false, me: why } : { mu: '', mp: true, me: '' };
+  },
+  // Encrypt and upload one queued attachment ({ file, name, mime, size, kind }).
+  // Resolves the file's description for the message body.
+  async upload(tid, att) {
+    const src = att.file || await (await fetch(att.url)).blob();
+    const bytes = new Uint8Array(await src.arrayBuffer());
+    const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt']);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const ct = new Uint8Array(await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv, additionalData: DM_TE.encode(DM_FILE_AAD) }, key, bytes));
+    let id = 0;
+    for (let seq = 0, off = 0; off < ct.length; seq++, off += DM_FILE_PART) {
+      const r = await apiFetch('dm_file_put', { thread_id: tid, file_id: id, seq, size: ct.length,
+        data: DM_B64.enc(ct.subarray(off, off + DM_FILE_PART)) });
+      if (!r || r.error || !r.file_id) throw new Error((r && r.error) || 'Upload failed');
+      id = Number(r.file_id);
+    }
+    return { id, key: DM_B64.enc(await crypto.subtle.exportKey('raw', key)), iv: DM_B64.enc(iv),
+      n: String(att.name || 'file').slice(0, 200), m: String(att.mime || '').slice(0, 100),
+      s: Number(att.size) || bytes.length, k: this.kindOf({ k: att.kind }) };
+  },
+  // Fetch and open a file the first time a chat shows it. Every row carrying
+  // it (the open chat and the contact list's preview) then takes the result.
+  load(f) {
+    const id = Number(f && f.id) || 0;
+    if (!id || !f.key || !f.iv || this.urls.has(id) || this.failed.has(id) || this._busy.has(id)) return;
+    this._busy.add(id);
+    (async () => {
+      const res = await fetch(`${API}?action=dm_file_get&id=${id}`, { credentials: 'include' });
+      if (!res.ok) throw new Error(res.status === 404 ? 'No longer available' : 'Couldn’t download');
+      const key = await crypto.subtle.importKey('raw', DM_B64.dec(f.key), 'AES-GCM', false, ['decrypt']);
+      const pt = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: DM_B64.dec(f.iv), additionalData: DM_TE.encode(DM_FILE_AAD) }, key, await res.arrayBuffer());
+      const url = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result || ''));
+        fr.onerror = () => reject(fr.error || new Error('read failed'));
+        fr.readAsDataURL(new Blob([pt], { type: String(f.m || 'application/octet-stream') }));
+      });
+      this.urls.set(id, typeof tagDataUrlName === 'function' ? tagDataUrlName(url, String(f.n || '')) : url);
+    })().catch(e => {
+      this.failed.set(id, String((e && e.name === 'OperationError') ? 'Couldn’t open this file' : (e && e.message) || 'Couldn’t open this file'));
+    }).finally(() => {
+      this._busy.delete(id);
+      this._patch(id);
+    });
+  },
+  _patch(id) {
+    const fix = (row) => { if (row && row.dmf && Number(row.dmf.id) === id) Object.assign(row, this.fields(row.dmf)); };
+    DM_STORE.threads.forEach(th => { th.msgs.forEach(fix); fix(th._lastRow); });
+    DM_STORE.notify();
+  },
+  reset() { this.urls.clear(); this.failed.clear(); this._busy.clear(); },
+};
+
 // Contact-list preview for a row: its text, or what it carries.
 function dmPreviewOf(row) {
   if (!row) return '';
   if (row.locked) return '🔒 Encrypted message';
-  if (row.mu && !row.c) return row.mt === 'image' ? '📷 Photo' : row.mt === 'video' ? '🎬 Video' : row.mt === 'audio' ? '🎵 Audio' : '📎 ' + (row.mn || 'File');
+  if ((row.mu || row.dmf) && !row.c) return row.mt === 'image' ? '📷 Photo' : row.mt === 'video' ? '🎬 Video' : row.mt === 'audio' ? '🎵 Audio' : '📎 ' + (row.mn || 'File');
   return row.c || '';
 }
 
@@ -7726,6 +7814,8 @@ const DM_STORE = {
     this.threads.clear(); this.convs = []; this.cursor = 0; this.ecursor = 0; this.sig = ''; this.active = 0; this.loaded = false; this._payRev = null;
     this._lookups.clear();
     try { DM_AI.reset(); } catch (_) {}
+    DM_FILES.reset();
+    this._sendChain.clear();
     if (!keepKeys) DM_KEYS.reset();
     this.notify();
   },
@@ -7892,10 +7982,16 @@ const DM_STORE = {
       if (!k) return { ...base, c: DM_LOCKED_TEXT, locked: true };
       const body = await DM_CRYPTO.open(k, m.iv, m.ct, DM_CRYPTO.aad(m));
       const text = String(body && body.t || '');
-      // A file link becomes the attachment itself (see FILES IN DIRECT
-      // CHATS); `src` keeps the text as sent for the agent's history.
-      const file = dmFileFromText(text);
-      const content = file ? { c: file.c, mt: file.mt, mu: file.mu, mn: file.mn, src: text } : { c: text };
+      // A file someone sent from a chat (see FILES YOU SEND IN A DIRECT
+      // CHAT): drawn from its decrypted copy once it's fetched. Otherwise a
+      // file link becomes the attachment itself (see FILES IN DIRECT CHATS).
+      // `src` keeps the text as sent for the agent's history.
+      const sent = body && body.k === 'file' && body.f && Number(body.f.id) ? body.f : null;
+      const file = sent ? null : dmFileFromText(text);
+      const content = sent
+        ? { c: String(body.c || ''), mt: DM_FILES.kindOf(sent), mn: String(sent.n || 'file'), ms: Number(sent.s) || 0,
+            src: text || DM_FILES.label(sent, body.c), dmf: sent, ...DM_FILES.fields(sent) }
+        : file ? { c: file.c, mt: file.mt, mu: file.mu, mn: file.mn, src: text } : { c: text };
       // Written by one of this account's agents (the server only tells the
       // sender): drawn like any other chat's AI message.
       if (mineOut && m.ai) return { ...base, r: 'bot', agent: DM_AI.agentName(m.ai), aiId: m.ai, ...content };
@@ -8071,11 +8167,67 @@ const DM_STORE = {
     // Right after the server asked for an away copy, add it up front
     // instead of taking the extra round trip again.
     const hint = th.agentKeyHint && Date.now() - th.agentKeyHint.at < 60000 ? th.agentKeyHint.key : null;
-    await this._deliver(th, row, body, 0, hint);
+    await this._inOrder(tid, () => this._deliver(th, row, body, 0, hint));
     // A chat with an agent on it: what you (or it) sent joins the agent's
     // copy of the conversation, as in every other chat.
     if (row.sid && !opts.noMirror) { try { DM_AI.noteSent(tid, row.sid, body); } catch (_) {} }
     return opts.wantId ? (row.sid || 0) : !!row.sid;
+  },
+  // One attachment from the composer ({ file, url, name, mime, size, kind }),
+  // with an optional caption, as its own message. The bubble shows it at
+  // once from the local copy while it's encrypted, uploaded and sent.
+  async sendFile(tid, att, caption) {
+    const th = this.threads.get(tid);
+    if (!th || !att || !(att.file || att.url)) return false;
+    const why = this.sendBlocker(tid);
+    if (why) { bcToast(why, 'warn'); return false; }
+    try { if (typeof DM_AI !== 'undefined') delete DM_AI.spamUntil[String(tid)]; } catch (_) {}
+    const uid = DM_CRYPTO.uid();
+    const now = new Date();
+    th._typingSentAt = 0;
+    const cap = String(caption || '').replace(/\s+$/, '');
+    const row = { id: uid, uid, r: 'out', c: cap, mt: att.kind, mu: att.url, mn: att.name, ms: att.size,
+      ts: now.toISOString(), t: convStamp(now), _pending: 'send', _att: att, _cap: cap };
+    th.msgs.push(row); th.byUid.set(uid, row);
+    this._slowAfter(row);
+    this._syncConv(th); this.notify();
+    return this._inOrder(tid, () => this._sendFileRow(th, row));
+  },
+  // Messages in one chat go out one after another, in the order they were
+  // made: a file still uploading holds back the text typed after it, so
+  // both people see them in the same order.
+  _sendChain: new Map(),
+  _inOrder(tid, fn) {
+    const next = (this._sendChain.get(tid) || Promise.resolve()).then(fn);
+    const tail = next.catch(() => {});
+    this._sendChain.set(tid, tail);
+    tail.then(() => { if (this._sendChain.get(tid) === tail) this._sendChain.delete(tid); });
+    return next;
+  },
+  // Upload (once) and send. A failed upload or send leaves the bubble with
+  // "Not sent — retry", which comes back here.
+  async _sendFileRow(th, row) {
+    if (!row._fileBody) {
+      try {
+        const f = await DM_FILES.upload(th.id, row._att);
+        DM_FILES.urls.set(f.id, row._att.url);
+        row.dmf = f;
+        row._fileBody = { v: 1, k: 'file', t: DM_FILES.label(f, row._cap), c: row._cap, f };
+        row.src = row._fileBody.t;
+      } catch (e) {
+        row._pending = false;
+        row.err = String(e && e.message || e) || 'Upload failed';
+        this.notify();
+        return false;
+      }
+    }
+    const hint = th.agentKeyHint && Date.now() - th.agentKeyHint.at < 60000 ? th.agentKeyHint.key : null;
+    await this._deliver(th, row, row._fileBody.t, 0, hint);
+    if (row.sid) {
+      delete row._att;
+      try { DM_AI.noteSent(th.id, row.sid, row._fileBody.t); } catch (_) {}
+    }
+    return !!row.sid;
   },
   // ── EDITING YOUR OWN MESSAGES ──────────────────────────────────────
   // Same rules as the other chats: your own text message (or one your
@@ -8195,6 +8347,7 @@ const DM_STORE = {
     const row = th && th.byUid.get(uid);
     if (!row || row.sid) return;
     row.err = ''; row._pending = 'send'; this._slowAfter(row); this.notify();
+    if (row._att || row._fileBody) { await this._sendFileRow(th, row); return; }
     const text = row.src || row.c;
     await this._deliver(th, row, text, 0);
     if (row.sid) { try { DM_AI.noteSent(tid, row.sid, text); } catch (_) {} }
@@ -8228,7 +8381,8 @@ const DM_STORE = {
         sender_key: mine.id, recipient_key: pk.id, uid: row.uid };
       const k = await DM_KEYS.keyFor(mine.id, pk.id, th.peer.id);
       if (!k) throw new Error('Missing key');
-      const body = { v: 1, k: 'text', t: text, at: Date.now() };
+      // A file message carries the file's description (and key) instead.
+      const body = row._fileBody ? { ...row._fileBody, at: Date.now() } : { v: 1, k: 'text', t: text, at: Date.now() };
       const sealed = await DM_CRYPTO.seal(k, body, DM_CRYPTO.aad(env));
       let agentEnv = null;
       if (agentKey) {
@@ -8239,7 +8393,8 @@ const DM_STORE = {
         agentEnv = { key_id: agentKey.id, iv: ae.iv, ct: ae.ct };
       }
       const r = await apiFetch('dm_send', { ...env, ...sealed, ...(row.aiId ? { ai_agent: row.aiId } : {}),
-        ...(agentEnv ? { agent_env: agentEnv } : {}), ...(row._ob ? { ob: row._ob } : {}) });
+        ...(agentEnv ? { agent_env: agentEnv } : {}), ...(row._ob ? { ob: row._ob } : {}),
+        ...(row._fileBody ? { files: [row._fileBody.f.id] } : {}) });
       if (r && r.message) {
         // assist: their agent can answer for them if they're away, so this
         // app keeps adding its readable copy up front. assist_notice: they

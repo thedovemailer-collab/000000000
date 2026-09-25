@@ -4836,6 +4836,45 @@ const useComposerHeight = (wrapRef, innerRef) => {
 // the whole selection away with nothing said.
 const ATTACH_DRAFTS = new Map();
 
+// ── FILE DROP OVERLAY ──
+// Shown over a chat while files are dragged onto it (every chat, direct
+// chats included). pointerEvents:'none' throughout. The drop itself is
+// handled by the chat column, so the overlay must never become the event
+// target — if it did, dragleave would fire the moment it appeared and the
+// overlay would fight itself.
+const ChatDropOverlay = () => (
+  <div style={{
+    position:'absolute', top:0, left:0, right:0, bottom:0, zIndex:14,
+    pointerEvents:'none', display:'flex',
+    alignItems:'center', justifyContent:'center', padding:24,
+    background:'linear-gradient(180deg, rgba(14,15,28,0.52) 0%, rgba(14,15,28,0.70) 100%)',
+    backdropFilter:'blur(7px)', WebkitBackdropFilter:'blur(7px)',
+    animation:'bcDropFade 130ms ease',
+  }}>
+    <div style={{
+      display:'flex', flexDirection:'column', alignItems:'center', gap:10,
+      padding:'26px 34px', borderRadius:16, maxWidth:320, textAlign:'center',
+      border:'1.5px dashed rgba(140,130,255,0.55)',
+      background:'rgba(108,99,255,0.08)',
+      boxShadow:'0 18px 50px -20px rgba(0,0,0,0.65)',
+    }}>
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#bcb1ff"
+           strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+        <polyline points="8 8 12 4 16 8"/><line x1="12" y1="4" x2="12" y2="16"/>
+      </svg>
+      <div style={{fontSize:14, fontWeight:600, color:'var(--t1)', letterSpacing:'-0.01em'}}>
+        Drop to attach
+      </div>
+      <div style={{fontSize:11, color:'var(--t3)', lineHeight:1.5}}>
+        Photos, video, audio or documents — up to {ATT_MAX_FILES} files,
+        {' '}{prettyBytes(ATT_MAX_BYTES)} each
+      </div>
+    </div>
+    <style>{`@keyframes bcDropFade { from { opacity: 0 } to { opacity: 1 } }`}</style>
+  </div>
+);
+
 // ── Pin clipped chat containers ───────────────────────────────────
 // .ipc and .ipc-chat-col are overflow:hidden. They have no scrollbar, but
 // the browser can still scroll them — and does, whenever something focuses
@@ -6949,43 +6988,8 @@ const InPageChatView = ({msg, onClose, onBack, backTarget, chatWidth, _convSig})
           only fades in after a short delay, so a fast load never shows it. */}
       <ThreadSkeleton skelRef={skelRef}/>
 
-      {/* ── FILE DROP OVERLAY ──
-          pointerEvents:'none' throughout. The drop itself is handled by the
-          column, so the overlay must never become the event target — if it
-          did, dragleave would fire the moment it appeared and the overlay
-          would fight itself. */}
-      {dragOver && (
-        <div style={{
-          position:'absolute', top:0, left:0, right:0, bottom:0, zIndex:14,
-          pointerEvents:'none', display:'flex',
-          alignItems:'center', justifyContent:'center', padding:24,
-          background:'linear-gradient(180deg, rgba(14,15,28,0.52) 0%, rgba(14,15,28,0.70) 100%)',
-          backdropFilter:'blur(7px)', WebkitBackdropFilter:'blur(7px)',
-          animation:'bcDropFade 130ms ease',
-        }}>
-          <div style={{
-            display:'flex', flexDirection:'column', alignItems:'center', gap:10,
-            padding:'26px 34px', borderRadius:16, maxWidth:320, textAlign:'center',
-            border:'1.5px dashed rgba(140,130,255,0.55)',
-            background:'rgba(108,99,255,0.08)',
-            boxShadow:'0 18px 50px -20px rgba(0,0,0,0.65)',
-          }}>
-            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#bcb1ff"
-                 strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-              <polyline points="8 8 12 4 16 8"/><line x1="12" y1="4" x2="12" y2="16"/>
-            </svg>
-            <div style={{fontSize:14, fontWeight:600, color:'var(--t1)', letterSpacing:'-0.01em'}}>
-              Drop to attach
-            </div>
-            <div style={{fontSize:11, color:'var(--t3)', lineHeight:1.5}}>
-              Photos, video, audio or documents — up to {ATT_MAX_FILES} files,
-              {' '}{prettyBytes(ATT_MAX_BYTES)} each
-            </div>
-          </div>
-          <style>{`@keyframes bcDropFade { from { opacity: 0 } to { opacity: 1 } }`}</style>
-        </div>
-      )}
+      {/* ── FILE DROP OVERLAY ── (see ChatDropOverlay) */}
+      {dragOver && <ChatDropOverlay/>}
 
       {/* ── COMPOSER HOVER HOT-ZONE ──
           Used to be a standalone absolutely-positioned strip here, on top
@@ -9741,6 +9745,23 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
   const openedAtRef = React.useRef(Date.now());
   const threadRef = React.useRef(null);
   const taRef = React.useRef(null);
+
+  // ── ATTACHMENTS ── the paperclip, drag-and-drop and paste, as in every
+  // other chat. Queued per chat (ATTACH_DRAFTS), so switching away keeps
+  // them. Each keeps its File: it's encrypted and uploaded when sent (see
+  // DM_FILES in bot-stores.jsx).
+  const [atts, setAtts] = React.useState(() => ATTACH_DRAFTS.get(cid) || []);
+  const [attBusy, setAttBusy] = React.useState(false);
+  const [dragOver, setDragOver] = React.useState(false);
+  const fileInputRef = React.useRef(null);
+  const dragDepthRef = React.useRef(0);   // dragenter/leave fire per child crossed
+  React.useEffect(() => { setAtts(ATTACH_DRAFTS.get(cid) || []); setDragOver(false); dragDepthRef.current = 0; }, [cid]);
+  const putAtts = (next) => {
+    if (next && next.length) ATTACH_DRAFTS.set(cid, next);
+    else ATTACH_DRAFTS.delete(cid);
+    setAtts(next || []);
+  };
+  const removeAtt = (id) => putAtts((ATTACH_DRAFTS.get(cid) || []).filter(a => a.id !== id));
   const pinnedRef = React.useRef(true);
   const glideUntilRef = React.useRef(0);    // our own smooth scroll is travelling
   const userScrollAtRef = React.useRef(0);  // the wheel / touch / keys moved it
@@ -9757,6 +9778,10 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
   }, [tid]);
 
   const rows = th ? th.msgs : [];
+  // Files sent in this chat are fetched and decrypted when it shows them.
+  React.useEffect(() => {
+    rows.forEach(m => { if (m && m.dmf && m.mp) DM_FILES.load(m.dmf); });
+  });
   // ── Which bubbles animate in ──
   // Decided once per message and never changed, as in every other chat:
   // what's already here when the chat opens (and history loaded above it)
@@ -10106,15 +10131,20 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const hasManual = () => !!(taRef.current && taRef.current.value.trim());
+  const hasManual = () => !!(taRef.current && taRef.current.value.trim()) || (ATTACH_DRAFTS.get(cid) || []).length > 0;
   const sendManual = () => {
     const ta = taRef.current;
     const text = ta ? ta.value : '';
-    if (!text.trim() || !canSend) return;
+    // Read the queue from the map: Enter can fire from a handler closed over
+    // a render older than the last file added.
+    const queued = editRef.current ? [] : (ATTACH_DRAFTS.get(cid) || []);
+    if ((!text.trim() && !queued.length) || !canSend) return;
+    if (attBusy) return;                 // a file still being read would be lost
     if (text.length > 20000) { bcToast('That message is too long (20,000 characters max)', 'warn'); return; }
     // Editing: Enter saves the edit; nothing new is sent.
     const ed = editRef.current;
     if (ed) {
+      if (!text.trim()) return;
       setEditRow(null);
       setComposer(preEditRef.current || '');
       preEditRef.current = '';
@@ -10122,15 +10152,68 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
       return;
     }
     ta.value = ''; ta.style.height = 'auto'; setHasText(false);
+    putAtts([]);
     pinnedRef.current = true;
-    DM_STORE.send(tid, text);
+    try { DM_STORE.typing(tid, 0); } catch (_) {}
+    // One file with a short line of text goes out as a captioned file, as
+    // in every other chat; otherwise the text first, then each file.
+    const asCaption = queued.length === 1 && !!text.trim() && text.length <= ATT_CAPTION_CAP;
+    (async () => {
+      if (text.trim() && !asCaption) await DM_STORE.send(tid, text);
+      for (let i = 0; i < queued.length; i++) {
+        await DM_STORE.sendFile(tid, queued[i], asCaption && i === 0 ? text : '');
+      }
+    })();
   };
-  const sendMode = hasText ? 'manual' : (hasAiDraft ? 'ai' : null);
+  // Shared by the paperclip, drag-and-drop and paste. Each file is read
+  // up front, so what's queued shows as it will be sent.
+  const addFiles = async (fileList) => {
+    const files = Array.from(fileList || []).filter(Boolean);
+    if (!files.length) return;
+    if (!canSend) { bcToast(blocker, 'warn'); return; }
+    const room = ATT_MAX_FILES - (ATTACH_DRAFTS.get(cid) || []).length;
+    if (room <= 0) { bcToast(`Up to ${ATT_MAX_FILES} files per message`, 'warn'); return; }
+    setAttBusy(true);
+    const accepted = [];
+    for (const f of files.slice(0, room)) {
+      if (f.size > ATT_MAX_BYTES) { bcToast(`${f.name} is over ${prettyBytes(ATT_MAX_BYTES)}`, 'warn'); continue; }
+      try {
+        const url = await readFileAsDataUrl(f);
+        const kind = attKindOf(f.type, f.name);
+        const thumb = kind === 'image' ? await makeImageThumb(url, 160) : '';
+        accepted.push({
+          id: 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+          name: f.name || kind, size: f.size, mime: f.type || '', kind, url, thumb, file: f,
+        });
+      } catch (err) {
+        console.warn('[dm-attach] could not read', f && f.name, err && err.message);
+      }
+    }
+    setAttBusy(false);
+    if (!accepted.length) return;
+    pauseDraft();
+    putAtts((ATTACH_DRAFTS.get(cid) || []).concat(accepted));
+    // A file landing is activity in the composer: hold it open, caret in the box.
+    setFocused(true);
+    try { taRef.current && taRef.current.focus({ preventScroll: true }); } catch (_) {}
+  };
+  const onDropFiles = (e) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepthRef.current = 0;
+    setDragOver(false);
+    const dt = e.dataTransfer;
+    if (dt && dt.files && dt.files.length) addFiles(dt.files);
+  };
+
+  const manualReady = hasText || atts.length > 0;
+  const sendMode = manualReady ? 'manual' : (hasAiDraft ? 'ai' : null);
   const sendFromButton = () => { if (sendMode === 'manual') sendManual(); else if (sendMode === 'ai') sendAI(); };
 
   const wrapRef = React.useRef(null), inRef = React.useRef(null);
   useComposerHeight(wrapRef, inRef);
-  const composerActive = hover || focused || hasText || hasAiDraft || !!(editRow && editRow.tid === tid);
+  const composerActive = hover || focused || hasText || hasAiDraft || atts.length > 0 || attBusy || dragOver || !!(editRow && editRow.tid === tid);
   const keyState = DM_KEYS.state;
 
   if (!th) {
@@ -10194,7 +10277,28 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
 
   return (
     <div className="ipc" onScroll={pinClipScroll} style={chatWidth ? {'--msg-col-w': `${chatWidth}px`} : undefined}>
-      <div className="ipc-chat-col" onScroll={pinClipScroll}>
+      {/* The whole chat takes dropped files, as every other chat does. It
+          must be marked [data-bc-dropzone]: everywhere else the app cancels
+          a drop so it can't navigate the page away (see GLOBAL DROP GUARD). */}
+      <div className="ipc-chat-col" onScroll={pinClipScroll}
+        data-bc-dropzone=""
+        onDragEnter={e => {
+          if (!dragHasFiles(e)) return;
+          e.preventDefault();
+          dragDepthRef.current += 1;
+          setDragOver(true);
+        }}
+        onDragOver={e => {
+          if (!dragHasFiles(e)) return;
+          e.preventDefault();                 // without this, 'drop' never fires
+          try { e.dataTransfer.dropEffect = canSend ? 'copy' : 'none'; } catch (_) {}
+        }}
+        onDragLeave={e => {
+          if (!dragHasFiles(e)) return;
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+          if (dragDepthRef.current === 0) setDragOver(false);
+        }}
+        onDrop={onDropFiles}>
         {/* ── HEADER — the identity pill + agent bubble every chat has ── */}
         <div className="ipc-hdr" style={{display:'flex', alignItems:'center', padding:'0 12px', position:'relative', gap:6,
           background:'transparent', backdropFilter:'none', WebkitBackdropFilter:'none', borderBottom:'none'}}>
@@ -10407,6 +10511,8 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
           </div>
         </div>
 
+        {dragOver && canSend && <ChatDropOverlay/>}
+
         {/* ── COMPOSER — same panel and AI draft card as every other chat ── */}
         <div ref={wrapRef} className="bc-comp"
           data-draft={hasAiDraft ? '1' : '0'}
@@ -10476,8 +10582,50 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
                 </button>
               </div>
             )}
-            <div className="bc-row" style={{paddingLeft:14}}>
+            {/* ── ATTACHMENT TRAY ── what goes out with the next send. */}
+            {(atts.length > 0 || attBusy) && (
+              <div className="bc-tray">
+                {atts.map(a => a.kind === 'image' ? (
+                  <div key={a.id} className="bc-tray-img" title={`${a.name} · ${prettyBytes(a.size)}`}>
+                    <img src={a.thumb || a.url} alt={a.name}/>
+                    <button onClick={() => removeAtt(a.id)} title={`Remove ${a.name}`} aria-label={`Remove ${a.name}`} className="bc-tray-x">
+                      <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                    </button>
+                  </div>
+                ) : (
+                  <div key={a.id} style={{maxWidth:230, minWidth:0, flexShrink:0}}>
+                    <FileChip name={a.name} size={a.size} kind={a.kind} compact onRemove={() => removeAtt(a.id)}/>
+                  </div>
+                ))}
+                {attBusy && <span className="bc-tray-busy">Reading file…</span>}
+              </div>
+            )}
+            <div className="bc-row">
+              {/* ── ATTACH ── same button as every other chat's composer. */}
+              <button type="button" className="bc-ibtn"
+                onClick={() => { try { fileInputRef.current && fileInputRef.current.click(); } catch (_) {} }}
+                disabled={attBusy || !canSend || !!(editRow && editRow.tid === tid)}
+                title="Attach photos or files" aria-label="Attach photos or files">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
+                </svg>
+              </button>
+              <input ref={fileInputRef} type="file" multiple style={{display:'none'}}
+                onChange={e => {
+                  addFiles(e.target.files);
+                  // Reset, or picking the same file twice in a row is a no-op.
+                  e.target.value = '';
+                }}/>
               <textarea ref={taRef} rows={1} disabled={!canSend}
+                onPaste={e => {
+                  // A screenshot on the clipboard arrives as a file, not text.
+                  const cd = e.clipboardData || window.clipboardData;
+                  if (cd && cd.files && cd.files.length && !editRef.current) {
+                    e.preventDefault();
+                    addFiles(cd.files);
+                  }
+                }}
                 placeholder={!canSend ? blocker : (editRow && editRow.tid === tid) ? 'Edit your message…' : hasAiDraft ? 'Or write your own reply…' : `Message ${first}…`}
                 className="bc-input" style={{opacity: canSend ? 1 : 0.6}}
                 onChange={e => {
@@ -10518,8 +10666,8 @@ const DirectChatView = ({msg, onClose, onBack, backTarget, chatWidth}) => {
                   </span>
                 </button>
               ) : (
-                <button type="button" className="bc-go" data-show={hasText && canSend ? '1' : '0'}
-                  onClick={sendManual} tabIndex={hasText && canSend ? 0 : -1}
+                <button type="button" className="bc-go" data-show={manualReady && canSend ? '1' : '0'}
+                  onClick={sendManual} tabIndex={manualReady && canSend ? 0 : -1}
                   title={editRow && editRow.tid === tid ? 'Save edit (Enter)' : 'Send (Enter)'}
                   aria-label={editRow && editRow.tid === tid ? 'Save edit' : 'Send'}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg>

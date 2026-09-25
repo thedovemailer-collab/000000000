@@ -3722,6 +3722,51 @@ try {
 } catch (Throwable $e) {
     error_log('[dm] offline schema failed: ' . $e->getMessage());
 }
+// ── FILES PEOPLE SEND IN DIRECT CHATS ─────────────────────────
+// End-to-end encrypted like the messages themselves: the browser encrypts
+// each file with its own random key before it's uploaded, and that key only
+// travels inside the (encrypted) message that carries the file. The server
+// keeps ciphertext it can't open, split into parts so no single request or
+// row runs into a host's post_max_size or max_allowed_packet.
+// msg_id is set once the message carrying the file is stored; only then may
+// the other person fetch it. Uploads never sent are cleared after a day.
+if (!defined('DM_FILE_PART')) define('DM_FILE_PART', 786432);              // bytes per part
+if (!defined('DM_FILE_MAX'))  define('DM_FILE_MAX', 25 * 1024 * 1024 + 64); // 25 MB + the cipher's tag
+try {
+    $pdo->exec("
+    CREATE TABLE IF NOT EXISTS bc_dm_files (
+        id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+        uploader    INT          NOT NULL,
+        thread_id   INT          NOT NULL,
+        size        INT          NOT NULL,
+        parts       INT          NOT NULL,
+        done        TINYINT(1)   NOT NULL DEFAULT 0,
+        msg_id      BIGINT       NULL DEFAULT NULL,
+        created_at  TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_thread (thread_id),
+        INDEX idx_pending (uploader, msg_id, created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+    CREATE TABLE IF NOT EXISTS bc_dm_file_parts (
+        file_id     BIGINT       NOT NULL,
+        seq         INT          NOT NULL,
+        data        MEDIUMBLOB   NOT NULL,
+        PRIMARY KEY (file_id, seq)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ");
+} catch (Throwable $e) {
+    error_log('[dm] file schema failed: ' . $e->getMessage());
+}
+// The files a sent message carries now belong to it (see dm_file_put).
+function dm_files_attach(PDO $pdo, int $me, int $tid, int $mid, array $ids): void {
+    $ids = array_slice(array_values(array_unique(array_filter(array_map('intval', $ids)))), 0, 10);
+    if (!$ids || $mid <= 0) return;
+    try {
+        $in = implode(',', array_fill(0, count($ids), '?'));
+        $pdo->prepare("UPDATE bc_dm_files SET msg_id=? WHERE id IN ($in) AND uploader=? AND thread_id=? AND done=1 AND msg_id IS NULL")
+            ->execute(array_merge([$mid], $ids, [$me, $tid]));
+    } catch (Throwable $e) { error_log('[dm] file attach failed: ' . get_class($e)); }
+}
 // Failed offline runs are retried (a provider hiccup must not lose a reply).
 if (!col_exists($pdo, 'bc_dm_ai_jobs', 'tries'))          try_alter($pdo, "ALTER TABLE bc_dm_ai_jobs ADD COLUMN tries INT NOT NULL DEFAULT 0");
 // Replies thrown away because they wrote again mid-reply, in a row (three
@@ -4558,6 +4603,14 @@ function dm_poll_housekeeping(PDO $pdo, int $me, bool $canAnswer = true): bool {
                     ->execute([$me]);
             } catch (Throwable $e) {}
             if (mt_rand(1, 60) === 1) $pdo->exec("DELETE FROM bc_dm_agent_env WHERE created_at < NOW() - INTERVAL 24 HOUR");
+            // Files uploaded for a message that never went out.
+            if (mt_rand(1, 60) === 1) {
+                try {
+                    $pdo->exec("DELETE p FROM bc_dm_file_parts p JOIN bc_dm_files f ON f.id = p.file_id
+                                 WHERE f.msg_id IS NULL AND f.created_at < NOW() - INTERVAL 1 DAY");
+                    $pdo->exec("DELETE FROM bc_dm_files WHERE msg_id IS NULL AND created_at < NOW() - INTERVAL 1 DAY");
+                } catch (Throwable $e) {}
+            }
         }
         if (mt_rand(1, 15) === 1) dm_offline_requeue_orphans($pdo);
         $q = $pdo->query("SELECT 1 FROM bc_dm_ai_jobs WHERE due_at <= NOW() AND (claimed_at IS NULL OR claimed_at < NOW() - INTERVAL 3 MINUTE) LIMIT 1");
@@ -15994,10 +16047,12 @@ GHOSTTXT;
                     ->execute([$mid, $obId, $me]);
             } catch (Throwable $e) { error_log('[dm] outbox mark failed: ' . get_class($e)); }
         };
+        // Files this message carries (encrypted, see dm_file_put).
+        $fileIds = (array)($body['files'] ?? []);
         // Idempotent resend: same (sender, uid) returns the stored row.
         $ex = $pdo->prepare("SELECT *, UNIX_TIMESTAMP(created_at) AS ts FROM bc_dm_messages WHERE sender_id=? AND uid=?");
         $ex->execute([$me, $uid]);
-        if ($row = $ex->fetch()) { $obMark((int)$row['id']); ok(['message' => dm_msg_out($row, $me)]); }
+        if ($row = $ex->fetch()) { $obMark((int)$row['id']); dm_files_attach($pdo, $me, $tid, (int)$row['id'], $fileIds); ok(['message' => dm_msg_out($row, $me)]); }
         // A queued message is taken for THIS send before it's stored, so it
         // can never go out twice: not if the server took it over meanwhile
         // (you went away and it sent it), not if another device has it.
@@ -16039,11 +16094,12 @@ GHOSTTXT;
             if ($e->getCode() !== '23000') throw $e;
             $ex->execute([$me, $uid]);
             $dup = $ex->fetch();
-            if ($dup) $obMark((int)$dup['id']);
+            if ($dup) { $obMark((int)$dup['id']); dm_files_attach($pdo, $me, $tid, (int)$dup['id'], $fileIds); }
             ok(['message' => dm_msg_out($dup, $me)]);
         }
         $mid = (int)$pdo->lastInsertId();
         $obMark($mid);
+        dm_files_attach($pdo, $me, $tid, $mid, $fileIds);
         // You wrote to them yourself: any spam cooldown on the chat ends, as
         // in every other chat.
         if ($aiA === 0 && empty($body['ob'])) dm_spam_clear($pdo, $me, $tid);
@@ -16108,6 +16164,86 @@ GHOSTTXT;
         ok(['message' => dm_msg_out($ex->fetch(), $me), 'assist' => (bool)($agentKey && $env),
             'assist_away' => (bool)($agentKey && $env && $away), 'assist_notice' => (bool)($agentKey && $env && $notice),
             'ai' => $aiRow]);
+    }
+
+    // One part of an encrypted file for a direct chat (see FILES PEOPLE SEND
+    // IN DIRECT CHATS). The first part (file_id 0) says how big the whole
+    // file is and gets its id back; the rest name that id. Every part but
+    // the last is exactly DM_FILE_PART bytes. Sent as base64 in JSON so it
+    // goes through the same request path (and size checks) as everything else.
+    case 'dm_file_put': {
+        $me  = (int)$ACCOUNT_ID;
+        $tid = (int)($body['thread_id'] ?? 0);
+        $t   = dm_thread_for($pdo, $tid, $me);
+        if (!$t) err('Conversation not found');
+        [$mine, $peerP] = dm_side($t, $me);
+        if ((int)$t[$mine . '_blocked'] === 1) err('You blocked this person. Unblock them to send messages.', ['code' => 'you_blocked']);
+        if ((int)$t[$peerP . '_blocked'] === 1) err('This person isn’t accepting messages from you.', ['code' => 'blocked']);
+        $fid = (int)($body['file_id'] ?? 0);
+        $seq = (int)($body['seq'] ?? -1);
+        $raw = base64_decode((string)($body['data'] ?? ''), true);
+        if ($raw === false || $raw === '' || strlen($raw) > DM_FILE_PART) err('Invalid file part');
+        if ($fid <= 0) {
+            $size = (int)($body['size'] ?? 0);
+            if ($size <= 0 || $size > DM_FILE_MAX) err('That file is too large to send (25 MB max).', ['code' => 'too_large']);
+            if ($seq !== 0) err('Invalid file part');
+            // Unsent uploads are capped, so a stuck client can't fill the database.
+            $q = $pdo->prepare("SELECT COALESCE(SUM(size), 0) FROM bc_dm_files WHERE uploader=? AND msg_id IS NULL AND created_at > NOW() - INTERVAL 1 DAY");
+            $q->execute([$me]);
+            if ((int)$q->fetchColumn() + $size > 300 * 1024 * 1024) err('Too many files are waiting to be sent. Try again later.', ['code' => 'rate_limited']);
+            $parts = (int)ceil($size / DM_FILE_PART);
+            $pdo->prepare("INSERT INTO bc_dm_files (uploader, thread_id, size, parts) VALUES (?,?,?,?)")->execute([$me, $tid, $size, $parts]);
+            $fid = (int)$pdo->lastInsertId();
+        } else {
+            $q = $pdo->prepare("SELECT size, parts, done FROM bc_dm_files WHERE id=? AND uploader=? AND thread_id=?");
+            $q->execute([$fid, $me, $tid]);
+            $f = $q->fetch();
+            if (!$f || (int)$f['done'] === 1) err('Upload not found', ['code' => 'upload_gone']);
+            $size = (int)$f['size']; $parts = (int)$f['parts'];
+            if ($seq < 0 || $seq >= $parts) err('Invalid file part');
+        }
+        $expect = $seq < $parts - 1 ? DM_FILE_PART : $size - DM_FILE_PART * ($parts - 1);
+        if (strlen($raw) !== $expect) err('Invalid file part');
+        $st = $pdo->prepare("REPLACE INTO bc_dm_file_parts (file_id, seq, data) VALUES (?,?,?)");
+        $st->bindValue(1, $fid, PDO::PARAM_INT);
+        $st->bindValue(2, $seq, PDO::PARAM_INT);
+        $st->bindValue(3, $raw, PDO::PARAM_LOB);
+        $st->execute();
+        $n = $pdo->prepare("SELECT COUNT(*) FROM bc_dm_file_parts WHERE file_id=?");
+        $n->execute([$fid]);
+        $done = (int)$n->fetchColumn() >= $parts;
+        if ($done) $pdo->prepare("UPDATE bc_dm_files SET done=1 WHERE id=?")->execute([$fid]);
+        ok(['file_id' => $fid, 'done' => $done]);
+    }
+
+    // An encrypted file from a direct chat, as stored: the browser decrypts
+    // it with the key from the message. Yours at any time; theirs once the
+    // message carrying it has been sent to you.
+    case 'dm_file_get': {
+        $me  = (int)$ACCOUNT_ID;
+        $fid = (int)($_GET['id'] ?? $body['id'] ?? 0);
+        $q = $pdo->prepare("SELECT * FROM bc_dm_files WHERE id=? AND done=1");
+        $q->execute([$fid]);
+        $f = $q->fetch();
+        $mine = $f && (int)$f['uploader'] === $me;
+        if (!$f || !dm_thread_for($pdo, (int)$f['thread_id'], $me) || (!$mine && empty($f['msg_id']))) {
+            http_response_code(404);
+            header('Content-Type: text/plain; charset=utf-8');
+            echo 'Not found';
+            exit;
+        }
+        header('Content-Type: application/octet-stream');
+        header('Content-Length: ' . (int)$f['size']);
+        header('Cache-Control: private, max-age=31536000, immutable');
+        header('X-Content-Type-Options: nosniff');
+        $p = $pdo->prepare("SELECT data FROM bc_dm_file_parts WHERE file_id=? AND seq=?");
+        for ($i = 0; $i < (int)$f['parts']; $i++) {
+            $p->execute([$fid, $i]);
+            $d = $p->fetchColumn();
+            if ($d === false) break;
+            echo is_resource($d) ? stream_get_contents($d) : $d;
+        }
+        exit;
     }
 
     // Edit one of your own messages. The browser re-encrypts the new text
