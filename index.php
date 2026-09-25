@@ -19,13 +19,13 @@ $langs = ['English','Español','Português','Français','Deutsch','Italiano','Ne
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>booqi · Handled, even offline</title>
+<title>booqi</title>
 <meta name="description" content="AI agents for Telegram, Discord and direct chats. Customer replies, crypto payments and licence delivery, fully automated.">
 <meta name="theme-color" content="#020b10">
 <meta name="apple-mobile-web-app-title" content="booqi">
-<meta property="og:title" content="booqi · Handled, even offline">
+<meta property="og:title" content="booqi">
 <meta property="og:description" content="AI agents that handle customer conversations on Telegram and Discord.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23000'/%3E%3Cpath d='M16 5c-5.3 0-9 3.9-9 9.2V27l3-2.4 3 2.4 3-2.4 3 2.4 3-2.4 3 2.4V14.2C25 8.9 21.3 5 16 5z' fill='%23fff'/%3E%3Cellipse cx='12.6' cy='14.2' rx='1.7' ry='2.2' fill='%23000'/%3E%3Cellipse cx='19.4' cy='14.2' rx='1.7' ry='2.2' fill='%23000'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 2.2C9.4 2.2 5 7 5 13.4V29.4l3.7-3 3.6 3 3.7-3 3.7 3 3.6-3 3.7 3V13.4C27 7 22.6 2.2 16 2.2z' fill='%23fff' stroke='%23000' stroke-width='1.8' stroke-linejoin='round'/%3E%3Cellipse cx='12' cy='13.6' rx='2.1' ry='2.8' fill='%23000'/%3E%3Cellipse cx='20' cy='13.6' rx='2.1' ry='2.8' fill='%23000'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fredoka:wght@400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
